@@ -1,0 +1,9 @@
+{
+    "games_per_tourney": 10,
+    "tourney_freq_S": 2,
+    "tourney_tag": "default",
+    "dice_count": 5,
+    "player_count": 4,
+    "scoring_method": 531,
+    "move_timeout_S": 0.5
+}
