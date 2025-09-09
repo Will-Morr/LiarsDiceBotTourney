@@ -201,13 +201,12 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 ```
 {
     "tourney_tag": "default",
-    "tourney_games": 10,
+    "tourney_game_count": 10,
     "scoring_method": "531",
     "score_multiplier": 1.0,
     "start_time": "2025-09-04 12:44:57",
     "end_time": "2025-09-04 12:45:15",
     "tourney_uuid": "fd439123-02fc-4a2f-88ab-cec335643bf5",
-    "tourney_index": 1,
     "bot_scores": [11, ...]
     "bot_uuids": ["c13ca266-51b5-4ab2-9b4f-75e24e131975", ...],
     "game_uuids": ["c7bc8469-dc7f-4019-9add-b742209559c0", ...],
@@ -216,7 +215,7 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 
 `tourney_tag` arbitrary identifier for what this tourney is a part of. Useful to separate test matches from real gameplay
 
-`tourney_games` how many games in this tourney
+`tourney_game_count` how many games in this tourney
 
 `scoring_method` how score is rewarded based on performance. 531 is first place gets 5 points, second gets 3, and third gets 1.
 

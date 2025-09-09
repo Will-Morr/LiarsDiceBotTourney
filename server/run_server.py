@@ -341,6 +341,8 @@ def runServer(server_config):
 
         print(f"Starting tourney with {len(clients)} bots")
         tourney_uuid = str(uuid.uuid4())
+        tourney_start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
         
         # Kick off game engines
         # TODO Don't just put every bot in the same games
@@ -416,12 +418,63 @@ def runServer(server_config):
                 break
 
         print(f"TOURNEY COMPLETE\n\n")
+
+        # Parse game logs
+        game_logs = [json.loads(log) for log in game_logs] # Load game logs as json
+
+        bot_uuid_str = [str(foo) for foo in clients.keys()]
+        results_by_bot = {foo:[[], []] for foo in bot_uuid_str}
+        for log in game_logs:
+            for botIdx, fooUuid in enumerate(log['bot_uuids']):
+                results_by_bot[fooUuid][0].append(botIdx)
+                results_by_bot[fooUuid][1].append(log['bot_count'])
+        full_names = [clients[fooUuid]['metadata']['full_title'] for fooUuid in bot_uuids]
+
+        # Score games
+        tourney_score = [0.0 for _ in bot_uuids]
+        if server_config['scoring_method'] == '531':
+            # 531 scoring is first gets 5 points, second 3, and third 1
+            for botIdx, fooUuid in enumerate(bot_uuid_str):
+                rankings = np.array(results_by_bot[fooUuid][0])
+                tourney_score[botIdx] += 5*len(np.where(rankings == 0)[0])
+                tourney_score[botIdx] += 3*len(np.where(rankings == 1)[0])
+                tourney_score[botIdx] += 1*len(np.where(rankings == 2)[0])
+        elif server_config['scoring_method'] == 'even':
+            for botIdx, fooUuid in enumerate(bot_uuid_str):
+                rankings = np.array(results_by_bot[fooUuid])
+                # Flip so first gets 1 point, last gets 0, and the spread is even between them
+                rankings[1] -= 1 # 
+                tourney_score[botIdx] = np.sum((rankings[1] - rankings[0]) / rankings[1])
+        else:
+            print(f"ERROR: Scoring method {server_config['scoring_method']} does not exist")
+        
+        # Add score mult
+        tourney_score = [score * server_config['score_mult'] for score in tourney_score]
+
+        # Generate tourney logs
+        tourney_logs = {
+            "tourney_tag": server_config['tourney_tag'],
+            "tourney_game_count": server_config['games_per_tourney'], # TODO make this reflect number of games from matchmaking
+            "scoring_method": server_config['scoring_method'],
+            "score_multiplier": server_config['score_mult'],
+
+            "results_by_bot": results_by_bot,
+            "full_names": full_names,
+            "bot_scores": tourney_score,
+
+            "start_time": tourney_start_time,
+            "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "tourney_uuid": tourney_uuid,
+            "bot_uuids": bot_uuid_str,
+            "game_uuids": [log['game_uuid'] for log in game_logs],
+        }           
+
         # Send responses to logger
+        broadcast_socket.send_multipart([
+            b'TourneyLog',
+            json.dumps(tourney_logs).encode('utf-8')
+        ])
 
         # Repeat
-
-
-
-
 
 runServer(server_config)

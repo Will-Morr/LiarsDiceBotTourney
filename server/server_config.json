@@ -4,7 +4,8 @@
     "tourney_tag": "default",
     "dice_count": 5,
     "player_count": 4,
-    "scoring_method": 531,
+    "scoring_method": "even",
+    "score_mult": 1.0,
     "move_timeout_mS": 100,
     "do_drop_wilds": true
 }
