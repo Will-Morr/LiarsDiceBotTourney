@@ -6,45 +6,21 @@ import json
 import random
 import threading
 import os
-
+import importlib
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
+parser.add_argument("bot_path", help="Python file containing bot info")
 parser.add_argument("-p", "--ping_freq_mS", default=10000, help="How frequently to ping server (default is 10 seconds)")
 args = parser.parse_args()
 
-# Hardcoded bot metadata
-BOT_REGISTRY_DATA = {
-    "player": "ExampleHuman",
-    "name": "DefaultBot",
-    "version": "1.0",
-    "stateless": True,
-    "software_engineer": False,
-    "machine_learning": False,
-    "internet": False,
-}
+# Import library specified as argument
+# We do it this way so players can just copy example bot without duplicating code
+bot_module = importlib.import_module(args.bot_path)
 
-def CalculateMove(game_state):
-    # DO YOUR MOVE LOGIC HERE
+CalculateMove = bot_module.calculateMove
+BOT_REGISTRY_DATA = bot_module.BOT_REGISTRY_DATA
 
-    # Call sometimes
-    if random.randint(0, 20) == 0:
-        return {
-            "response_type": "call",
-        }
-
-    bid = game_state['bid']
-
-    # Raise
-    bid[1] += 1
-    if bid[1] > 6:
-        bid = [bid[0]+1, 1]
-
-    return {
-        "response_type": "bid",
-        "bid": bid
-    }
-    
 def MoveHandlerProcess(context, moveResponse_socket_path, gameState_socket_path):
     # Socket to get game states
     receiver = context.socket(zmq.PULL)
