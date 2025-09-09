@@ -23,7 +23,7 @@ print(timestamp)
 # Load server configuration
 server_config = json.load(open(args.config_path))
 
-def botRegistration(clients, id, data):
+def botRegistration(clients, id, data, broadcast_socket = None):
     # If new connection, add
     if id not in clients:
         msg_data = json.loads(data)
@@ -32,6 +32,13 @@ def botRegistration(clients, id, data):
             'metadata': msg_data,
             'last_ping': time.time()
         }
+
+        # Broadcast bot registration if requested
+        if broadcast_socket:
+            broadcast_socket.send_multipart([
+                b'RegisterBot',
+                json.dumps(msg_data).encode('utf-8')
+            ])
     # Otherwise track ping
     else:
         clients[id]['last_ping'] = time.time()
@@ -90,8 +97,9 @@ def endRound(result, game_state, face_counts, losing_player, calling_player):
 
     return game_state, rollNewDice(game_state)
 
-def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, timeout_Ms):
+def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_uuid, timeout_Ms):
     # Init game state
+    start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     player_count = len(player_uuids)
     game_uuid = str(uuid.uuid4())
     game_state =  {
@@ -112,6 +120,8 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, timeout_M
         "game_uuid": game_uuid
     }
 
+    ping_times = [[] for _ in range(len(player_uuids))]
+
     current_hands = None
     
     # Init socket connection
@@ -121,7 +131,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, timeout_M
 
     poller = zmq.Poller()
     poller.register(gameEngine_socket, zmq.POLLIN)
-
+    
     while True:
         # Roll new dice (on start and on new round)
         if current_hands == None:
@@ -138,11 +148,14 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, timeout_M
             json.dumps(game_state).encode('utf-8')
         ])
 
-        # Get response
-        socks = dict(poller.poll(timeout_Ms))
-
         # Ease of reference var
         bot_index = game_state['bot_index']
+
+        # Get response and ping time
+        response_ping = time.time()
+        socks = dict(poller.poll(timeout_Ms))
+        response_ping = time.time() - response_ping
+        ping_times[bot_index] = response_ping
 
         # Handle move
         if gameEngine_socket in socks and socks[gameEngine_socket] == zmq.POLLIN:
@@ -174,7 +187,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, timeout_M
 
             elif response['response_type'] == 'bid':
                 # Update wild ones status before we do anything else
-                if game_state["first_round"] and response['bid'][1] == 1:
+                if game_state["first_round"] and response['bid'][1] == 1 and do_drop_wilds:
                     game_state["wild_ones"] = False
                 
                 # If bids have been place and current bot was first player, first round is over
@@ -210,13 +223,44 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, timeout_M
             print(f"Bot timed out")
             game_state, current_hands = endRound("error_timeout", game_state, current_hands, bot_index, bot_index)
 
-        # Handle timeout
-
         # Break if only one bot remains
         if sum(game_state['dice_counts']) == max(game_state['dice_counts']):
             break
 
-    # TODO Send game log to main thread
+    # Def not the fastest way to do this but it runs once per round so eh
+    bot_rankings = []
+    for round in game_state['round_history']:
+        for playerIdx, counts in enumerate(round['face_counts']):
+            if sum(counts) == 0 and playerIdx not in bot_rankings:
+                bot_rankings = [playerIdx] + bot_rankings
+    
+    # Build game log
+    game_log = {
+        "game_history": [game_state['round_history']],
+        "bot_rankings": bot_rankings,
+
+        "bot_count": len(player_uuids),
+        "dice_count": dice_count,
+        "wild_ones_drop": do_drop_wilds, 
+
+        "bot_uuids": [str(foo) for foo in player_uuids],
+        "game_uuid": game_uuid,
+        "tourney_uuid": tourney_uuid,
+
+        "start_time": start_time,
+        "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "ping_averages_mS": [1000*np.average(arr) for arr in ping_times],
+        "ping_maximums_mS": [1000*np.max(arr) for arr in ping_times]
+    }
+
+    # Send game log
+    gameEngine_socket.send_multipart([
+        b'', 
+        b'GameLog',
+        json.dumps(game_log).encode('utf-8')
+    ])
+
+    return
 
 def runServer(server_config):
     # Init everything
@@ -226,8 +270,14 @@ def runServer(server_config):
 
     # Init ZMQ router
     context = zmq.Context.instance()
+
+    # Init communication with bots
     bot_socket = context.socket(zmq.ROUTER)
     bot_socket.bind(f"tcp://*:5555")
+
+    # Init broadcast communications for logs
+    broadcast_socket = context.socket(zmq.PUB)
+    broadcast_socket.bind(f"tcp://*:5556")
 
     # Init internal game communication
     gameEngine_socket = context.socket(zmq.ROUTER)
@@ -258,7 +308,7 @@ def runServer(server_config):
 
                 # Verify that message is legitimate bot metadata
                 if messageType == b'RegisterBot':
-                    botRegistration(clients, messageIdentity, messageData[0])
+                    botRegistration(clients, messageIdentity, messageData[0], broadcast_socket)
                 elif messageType == b'Move':
                     print(f"Bot {messageIdentity} responded too late, RIP")
                 else:
@@ -290,18 +340,20 @@ def runServer(server_config):
             continue
 
         print(f"Starting tourney with {len(clients)} bots")
+        tourney_uuid = str(uuid.uuid4())
         
         # Kick off game engines
         # TODO Don't just put every bot in the same games
         game_threads = []
+        game_logs = []
         game_threads_live = True
         print(f"Kicking off {server_config['games_per_tourney']} games")
         for i in range(server_config['games_per_tourney']):
-            bot_uuid = list(clients.keys())
-            print(f"Starting game {i} with UUIDs {bot_uuid}")
+            bot_uuids = list(clients.keys())
+            print(f"Starting game {i} with UUIDs {bot_uuids}")
             t = threading.Thread(
                 target=GameEngineThread, 
-                args=[context, server_config['dice_count'], server_config['do_drop_wilds'], bot_uuid, server_config['move_timeout_mS']],
+                args=[context, server_config['dice_count'], server_config['do_drop_wilds'], bot_uuids, tourney_uuid, server_config['move_timeout_mS']],
                 name=f"GameEngine_{i}",
                 daemon=True
             )
@@ -313,9 +365,18 @@ def runServer(server_config):
         while game_threads_live:
             socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
 
-            # Timeout happened, ignore
+            # Timeout hit, check to make sure all games threads are still live
             if len(socks) == 0:
-                pass
+                # Check for live game threads
+                game_threads_live = False
+                for t in game_threads:
+                    if t.is_alive():
+                        game_threads_live = True
+                        break
+                if not game_threads_live:
+                    print("WARNING All game threads returned without full logs")
+                    # We timed out despite all games having returned. This should not happen
+                    break
             
             # Handle bot communication
             elif bot_socket in socks and socks[bot_socket] == zmq.POLLIN:                    
@@ -323,7 +384,7 @@ def runServer(server_config):
                 
                 # Verify that message is legitimate bot metadata
                 if messageType == b'RegisterBot':
-                    botRegistration(clients, messageIdentity, messageData[0])
+                    botRegistration(clients, messageIdentity, messageData[0], broadcast_socket)
                 # Handle move response
                 elif messageType == b'Move':
                     # Move data is [game_uuid, move_json] so pass those directly to game engines
@@ -342,20 +403,17 @@ def runServer(server_config):
                     bot_socket.send_multipart([messageData[0], b'', b'GameState', messageIdentity, messageData[1]])
                 
                 # Log game results
-                elif messageType == b'GameResult':
-                    # TODO Actually log game results instead of printing
-                    print(f"\n\nGameResult:\n{messageData}")
+                elif messageType == b'GameLog':
+                    game_logs.append(messageData[0])
+                    broadcast_socket.send_multipart([b'GameLog', messageData[0]])
 
             # Something is afoot
             else:
                 print(f"Failed to handle {socks}")
 
-            # Check for live game threads
-            game_threads_live = False
-            for t in game_threads:
-                if t.is_alive():
-                    game_threads_live = True
-                    break
+            # Break if all games have returned
+            if len(game_logs) == server_config['games_per_tourney']:
+                break
 
         print(f"TOURNEY COMPLETE\n\n")
         # Send responses to logger

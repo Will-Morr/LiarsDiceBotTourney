@@ -158,7 +158,6 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
     "dice_count": 5,
     "wild_ones_drop": false, 
     "bot_uuids": ['c13ca266-51b5-4ab2-9b4f-75e24e131975', ...],
-    "bot_titles": ["CleverBot_1.0_JaneDoe", ...],
     "game_uuid": "c7bc8469-dc7f-4019-9add-b742209559c0",
     "tourney_uuid": "fd439123-02fc-4a2f-88ab-cec335643bf5",
     "bot_rankings": [3,1,2,0],
@@ -188,10 +187,6 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 `tourney_uuid` unique tracker for what tourney this game was a part of
 
 `bot_rankings` bot indices in reverse order of loss
-
-`tourney_index` what number tourney this is
-
-`match_index` what the index of this match is within the tourney
 
 `start_time` when match started
 
