@@ -6,7 +6,7 @@ import json
 import random
 import threading
 import os
-import importlib
+import importlib.util
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
@@ -16,7 +16,11 @@ args = parser.parse_args()
 
 # Import library specified as argument
 # We do it this way so players can just copy example bot without duplicating code
-bot_module = importlib.import_module(args.bot_path)
+module_name = args.bot_path.stem if hasattr(args.bot_path, 'stem') else 'dynamic_module'
+print()
+spec = importlib.util.spec_from_file_location(module_name, args.bot_path)
+bot_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bot_module)
 
 CalculateMove = bot_module.calculateMove
 BOT_REGISTRY_DATA = bot_module.BOT_REGISTRY_DATA
