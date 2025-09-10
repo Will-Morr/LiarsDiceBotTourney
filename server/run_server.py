@@ -161,7 +161,22 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         if gameEngine_socket in socks and socks[gameEngine_socket] == zmq.POLLIN:
             _, response = gameEngine_socket.recv_multipart()
             
-            response = json.loads(response)
+            # Sanitize response input
+            okayResponse = True
+            try:
+                response = json.loads(response)
+                if 'response_type' not in response: okayResponse = False
+                elif response['response_type'] not in ['call', 'bid'] : okayResponse = False
+                elif response['response_type'] == 'bid':
+                    if 'bid' not in response: okayResponse = False
+                    elif response['bid'][0] <= 0: okayResponse = False
+                    elif response['bid'][1] >= 6: okayResponse = False
+            except:
+                okayResponse = False
+
+            if not okayResponse:
+                game_state, current_hands = endRound("error_bad_response", game_state, current_hands, bot_index, bot_index)
+                continue
 
             # Set last bidder if not first bid
             if len(game_state['bid_history']) > 0:
