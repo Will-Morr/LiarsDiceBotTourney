@@ -7,5 +7,7 @@
     "scoring_method": "even",
     "score_mult": 1.0,
     "move_timeout_mS": 100,
-    "do_drop_wilds": true
+    "do_drop_wilds": true,
+    "game_port": 5555,
+    "logs_port": 5556
 }

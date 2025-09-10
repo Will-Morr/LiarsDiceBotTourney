@@ -288,11 +288,11 @@ def runServer(server_config):
 
     # Init communication with bots
     bot_socket = context.socket(zmq.ROUTER)
-    bot_socket.bind(f"tcp://*:5555")
+    bot_socket.bind(f"tcp://*:{server_config['game_port']}")
 
     # Init broadcast communications for logs
     broadcast_socket = context.socket(zmq.PUB)
-    broadcast_socket.bind(f"tcp://*:5556")
+    broadcast_socket.bind(f"tcp://*:{server_config['logs_port']}")
 
     # Init internal game communication
     gameEngine_socket = context.socket(zmq.ROUTER)

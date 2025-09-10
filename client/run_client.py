@@ -61,9 +61,6 @@ server_socket.setsockopt_string(zmq.IDENTITY, SESSION_GUID) # Set ID
 server_url = f"tcp://{args.zmq_address}:5555"
 server_socket.connect(server_url)
 
-# Make socket directory if does not exist
-os.makedirs("sock", exist_ok=True)
-
 # Backend socket for thread communication
 moveResponse_socket = context.socket(zmq.SUB)
 moveResponse_socket_path = f"inproc://sock/{SESSION_GUID}_move-response.sock" # Include GUID in socket path so we can handle multiple sessions
