@@ -9,5 +9,6 @@
     "move_timeout_mS": 100,
     "do_drop_wilds": true,
     "game_port": 5555,
-    "logs_port": 5556
+    "logs_port": 5556,
+    "logs_path": "logs"
 }

@@ -7,7 +7,8 @@ import time
 import queue
 import uuid
 import numpy as np
-
+import os
+from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
@@ -258,7 +259,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         "dice_count": dice_count,
         "wild_ones_drop": do_drop_wilds, 
 
-        "bot_uuids": [str(foo) for foo in player_uuids],
+        "bot_uuids": [str(foo.decode()) for foo in player_uuids],
         "game_uuid": game_uuid,
         "tourney_uuid": tourney_uuid,
 
@@ -276,6 +277,47 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
     ])
 
     return
+
+def tourneyLogsThread(context, server_config):
+    # Init receiving communications for logs
+    log_socket = context.socket(zmq.SUB)
+    log_socket_path = f"tcp://localhost:{server_config['logs_port']}"
+    log_socket.connect(log_socket_path)
+    log_socket.setsockopt(zmq.SUBSCRIBE, b"")
+
+    poller = zmq.Poller()
+    poller.register(log_socket, zmq.POLLIN)
+
+    log_path = Path(server_config['logs_path'])
+    os.makedirs(log_path / "clients", exist_ok=True)
+    os.makedirs(log_path / "tournies", exist_ok=True)
+    os.makedirs(log_path / "games", exist_ok=True)
+    
+    while True:
+        socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
+
+        # Timeout happened, ignore
+        if len(socks) == 0:
+            continue
+        # Handle bad messages
+        elif log_socket not in socks and socks[log_socket] != zmq.POLLIN:
+            print(f"Failed to handle {socks}")
+        # Log message
+        else:
+            messageType, *messageData = log_socket.recv_multipart()
+
+            if messageType == b'RegisterBot':
+                msg_data = json.loads(messageData[0])
+                json.dump(msg_data, open(log_path / "clients" / f"{msg_data['session_uuid']}.json", 'w'), indent='\t')
+            elif messageType == b'TourneyLog':
+                msg_data = json.loads(messageData[0])
+                json.dump(msg_data, open(log_path / "tournies" / f"{msg_data['tourney_uuid']}.json", 'w'), indent='\t')
+            elif messageType == b'GameLog':
+                msg_data = json.loads(messageData[0])
+                json.dump(msg_data, open(log_path / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
+            else:
+                print(f"Invalid Message Type Received: {messageType}")
+                continue
 
 def runServer(server_config):
     # Init everything
@@ -303,7 +345,16 @@ def runServer(server_config):
     poller.register(bot_socket, zmq.POLLIN)
     poller.register(gameEngine_socket, zmq.POLLIN)
 
-    # Poll for ZMQ clients and wait until tourney interval to start 
+    # Kick off logger thread
+    print(f"Starting logger")
+    loggerThread = threading.Thread(
+                target=tourneyLogsThread, 
+                args=[context, server_config],
+                name=f"logger_thread",
+                daemon=True
+            )
+    loggerThread.start()
+    
 
     # List of clients that are active
     clients = {}
@@ -436,8 +487,8 @@ def runServer(server_config):
 
         # Parse game logs
         game_logs = [json.loads(log) for log in game_logs] # Load game logs as json
-
-        bot_uuid_str = [str(foo) for foo in clients.keys()]
+        bot_uuid_str = [foo.decode() for foo in clients.keys()]
+        print(bot_uuid_str)
         results_by_bot = {foo:[[], []] for foo in bot_uuid_str}
         for log in game_logs:
             for botIdx, fooUuid in enumerate(log['bot_uuids']):
