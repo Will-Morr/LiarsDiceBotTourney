@@ -2,6 +2,7 @@ import json
 import argparse
 import numpy as np
 import pandas as pd
+import zmq
 from copy import deepcopy
 
 parser = argparse.ArgumentParser()
@@ -59,7 +60,7 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
         
         # Iterate through games
         for round in log['game_history']:
-            print_helper(f"\n{'========== New Hands:'.ljust(max_name_len)}     {'  '.join([str(i) for i in range(6)])}")
+            print_helper(f"\n{'========== New Hands:'.ljust(max_name_len)}     {'  '.join([str(i) for i in range(1, 7)])}")
 
             # Print hands in order
             for idx in np.argsort(log['bot_rankings']):
@@ -83,7 +84,10 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
     df = pd.DataFrame({
         # 'bot_uuids': tourney_data['bot_uuids'],
         'full_names': tourney_data['bot_fullnames'],
-        'bid': [0 for i in tourney_data['bot_uuids']]
+        'scores': tourney_data['bot_scores'],
+        'bid': [0 for i in tourney_data['bot_uuids']],
+        'good_call': [0 for i in tourney_data['bot_uuids']],
+        'bad_call': [0 for i in tourney_data['bot_uuids']],
     })
 
     for log in tourney_data['game_logs']:
@@ -102,6 +106,7 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
                     df[val] = 0
                 df.loc[df_idx, val] += count
     print(f"\n\nAggregate bot move results by frequency")
+    df = df.sort_values(by=['scores'], ascending=False)
     print(df)
 
 
@@ -126,5 +131,42 @@ if args.file_path:
     tourney_log = json.load(open(args.file_path, 'r'))
     makeReadableGameLog(tourney_log, args.player, args.bot, export_file)
 
+if args.broadcast_address:
+# Init receiving communications for logs
+    context = zmq.Context.instance()
+    log_socket = context.socket(zmq.SUB)
+    log_socket_path = f"tcp://{args.broadcast_address}"
+    log_socket.connect(log_socket_path)
+    log_socket.setsockopt(zmq.SUBSCRIBE, b"")
 
+    poller = zmq.Poller()
+    poller.register(log_socket, zmq.POLLIN)
 
+    while True:
+        socks = dict(poller.poll(1000)) # 100ms timeout so we will start tournament even if every bot is connected
+
+        # Timeout happened, ignore
+        if len(socks) == 0:
+            continue
+        # Handle bad messages
+        elif log_socket not in socks and socks[log_socket] != zmq.POLLIN:
+            print(f"Failed to handle {socks}")
+        # Log message
+        else:
+            messageType, *messageData = log_socket.recv_multipart()
+
+            if messageType == b'RegisterBot':
+                continue
+                msg_data = json.loads(messageData[0])
+                json.dump(msg_data, open(log_path / "json" / "clients" / f"{msg_data['session_uuid']}.json", 'w'), indent='\t')
+            elif messageType == b'TourneyLog':
+                tourney_log = json.loads(messageData[0].decode('utf-8'))
+                makeReadableGameLog(tourney_log, args.player, args.bot, export_file)
+            elif messageType == b'GameLog':
+                # We are only logging tourney logs now
+                pass
+                # msg_data = json.loads(messageData[0])
+                # json.dump(msg_data, open(log_path / "json" / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
+            else:
+                print(f"Invalid Message Type Received: {messageType}")
+                continue
