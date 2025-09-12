@@ -263,7 +263,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
 
     # Build game log
     game_log = {
-        "game_history": [game_state['round_history']],
+        "game_history": game_state['round_history'],
         "bot_rankings": game_state["bot_rankings"],
 
         "bot_count": len(player_uuids),
@@ -573,8 +573,12 @@ def runServer(server_config):
             "score_multiplier": server_config['score_mult'],
 
             "results_by_bot": results_by_bot,
-            "full_names": full_names,
+            "bot_fullnames": full_names,
+            "bot_player": [clients[fooUuid]['metadata']['player'] for fooUuid in bot_uuids],
+            "bot_name": [clients[fooUuid]['metadata']['name'] for fooUuid in bot_uuids],
+            "bot_version": [clients[fooUuid]['metadata']['version'] for fooUuid in bot_uuids],
             "bot_scores": tourney_score,
+            "bot_count": len(bot_uuids),
 
             "start_time": tourney_start_time,
             "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -582,7 +586,7 @@ def runServer(server_config):
             "tourney_index": tourney_idx,
             "bot_uuids": bot_uuid_str,
             "game_uuids": [log['game_uuid'] for log in game_logs],
-            "game_logs": [game_logs],
+            "game_logs": game_logs,
         }           
 
         # Send responses to logger
