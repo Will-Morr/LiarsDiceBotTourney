@@ -108,6 +108,8 @@ while True:
                 gameState_socket.send_multipart(messageData)
             elif messageType == b'Print':
                 print(f"Received: {messageData[0].decode('utf-8')}")
+            elif messageType == b'Ping':
+                server_socket.send_multipart([b'', b'Ping'])
             else:
                 print(f"WARNING: Unhandled message type {messageType}")
 

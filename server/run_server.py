@@ -372,12 +372,23 @@ def runServer(server_config):
     # List of clients that are active
     clients = {}
     tourney_idx = -1
+    last_ping_time = time.time()
     
     # Giant loop to run tourneys repeatedly
     while True:
         # Loop receiving new connections until new tourney starts
+        pings_sent = False
         while time.time() < lastTourneyTime + server_config['tourney_freq_S']:
             socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
+
+            # Ping all bots 1 second before tourney starts
+            # Because we only time out when the server starts, 
+            if not pings_sent and time.time() < lastTourneyTime + server_config['tourney_freq_S'] - 1.0:
+                pings_sent = True
+                last_ping_time = time.time()
+                for id in list(clients.keys()):
+                    bot_socket.send_multipart([id, b'', b'Ping'])
+
 
             # Timeout happened, ignore
             if len(socks) == 0:
@@ -386,9 +397,11 @@ def runServer(server_config):
             elif bot_socket in socks and socks[bot_socket] == zmq.POLLIN:                    
                 messageIdentity, _, messageType, *messageData = bot_socket.recv_multipart()
 
-                # Verify that message is legitimate bot metadata
                 if messageType == b'RegisterBot':
                     botRegistration(clients, messageIdentity, messageData[0], broadcast_socket)
+                elif messageType == b'Ping':
+                    # Ping message is to just make sure bot is still online
+                    clients[messageIdentity]['last_ping'] = time.time()
                 elif messageType == b'Move':
                     print(f"Bot {messageIdentity} responded too late, RIP")
                 else:
@@ -404,10 +417,9 @@ def runServer(server_config):
                 print(f"Failed to handle {socks}")
 
         # Delete all bots that have been inactive for 30 seconds
-        currentTime = time.time()
         for id in list(clients.keys()):
             data = clients[id]
-            if 30 < currentTime - data['last_ping']:
+            if data['last_ping'] < last_ping_time:
                 print(f"Deleting timed out bot {id} : {data['metadata']['full_title']}")
                 del clients[id]            
 
