@@ -28,7 +28,6 @@ Please also specify the other tags (which are somewhat TBD right now). Having fl
 
 ```
 {
-    "message_type": "BotRegistry",
     "player": "JaneDoe",
     "name": "CleverBot",
     "version": "1.0",
