@@ -8,6 +8,7 @@ import uuid
 import numpy as np
 import os
 from pathlib import Path
+import random
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
@@ -450,6 +451,8 @@ def runServer(server_config):
         game_threads_live = server_config['games_per_tourney']
         for i in range(server_config['games_per_tourney']):
             bot_uuids = list(clients.keys())
+            # Shuffle order of bots
+            random.shuffle(bot_uuids)
             t = threading.Thread(
                 target=GameEngineThread, 
                 args=[context, server_config['dice_count'], server_config['do_drop_wilds'], bot_uuids, tourney_uuid, server_config['move_timeout_mS']],
