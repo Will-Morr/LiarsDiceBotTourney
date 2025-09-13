@@ -52,11 +52,13 @@ These two pieces of data are the only data you need to make an rudimentary bot.
 
 `player_count` is the number of players.
 
-`face_counts` is how many dice each player has remaining. Players with 0 are out of the game and skipped.
+`dice_counts` is how many dice each player has remaining. Players with 0 are out of the game and skipped.
 
-`bot_index` is where you are in the turn order. 
+`bot_index` is where you are in the turn order.
 
 `wild_ones` is indicating that ones are still considered wild cards. There is an special rule that if a player bids some number of ones during the first round ones stop being wild. We may or may not drop this rule for simplicity. 
+
+`first_round` is if all players have made a move. wild_ones is locked once this goes false
 
 This should be all the data required for a statistically perfect bot, assuming random play. Unless you want to get fancy (which admittedly you probably do) you can ignore the following.
 
@@ -68,11 +70,11 @@ This should be all of the data to estimate the other player's dice.
 
 `game_history` is an list of data for every previous round. Index 0 is the first round. Each row contains the following items:
 
-`last_bidder` is the player to last raise the bid and got called
+`calling_player` is the player who called the bluff. This is recorded separately value for if players were skipped. If the bot made an illegial move `calling_player` will be same as `last_bidder`.
 
-`calling_player` is the player who called the bluff. This is a separate value for if players were skipped. If the bot failed `calling_player` will be same as `last_bidder`.
+`losing_player` is the player who lost this round, losing a die
 
-`result` is the end state of the round. "good_call" is a successfully called bluff by the next player after the loser. "bad_call" is an unsuccessful bluff. Bots responding incorrectly are also logged here. "bad_bid" indicates a bid that did not increment, "overflow_bid" occurs if more dice than exist are bid (safety catch to prevent infinitely long games). "insane_bid" indicates that a completely irrational bid occured (IE betting on 7s existing). 
+`result` is the end state of the round. "good_call" is a successfully called bluff by the next player after the loser. "bad_call" is an unsuccessful bluff. Bots responding incorrectly are also logged here. "error_bid" indicates a bid that did not increment, "error_overflow" occurs if more dice than exist are bid (safety catch to prevent infinitely long games). "error_bad_message" indicates a communication failure. "error_timeout" indicates a lack of response in time. 
 
 `bid_history` is the same in both contexts.
 
@@ -82,15 +84,14 @@ This should be all of the data to estimate the other player's dice.
 
 ```
 {
-    "message_type": "GameState",
-
     "bid": [4,5],
     "dice": [1,2,0,0,1,1],
 
     "player_count": 4,
-    "face_counts": [2,4,3,5],
+    "dice_counts": [2,4,3,5],
     "bot_index": 3,
     "wild_ones": true,
+    "first_round": true,
     
     "bid_history": [[1,4,0],[2,2,1],[4,5,2]],
     "round_count": 6,
@@ -119,7 +120,6 @@ This should be all of the data to estimate the other player's dice.
 
 ```
 {
-    "message_type": "BotMove",
     "response_type": "bid",
     "bid": [3,4]
     "game_uuid": "97e698f3-6dbe-4b06-8165-91b79373592b",
@@ -146,7 +146,6 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 
 ```
 {
-    "message_type": "GameLog",
     "game_history": [ ... ],
     "bot_count": 4,
     "dice_count": 5,
@@ -199,7 +198,6 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 
 ```
 {
-    "message_type": "TourneyLog",
     "tourney_tag": "default",
     "tourney_games": 10,
     "scoring_method": "531",

@@ -10,6 +10,7 @@ import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
+parser.add_argument("-p", "--ping_freq_mS", default=10000, help="How frequently to ping server (default is 10 seconds)")
 args = parser.parse_args()
 
 # Hardcoded bot metadata
@@ -25,11 +26,23 @@ BOT_REGISTRY_DATA = {
 
 def CalculateMove(game_state):
     # DO YOUR MOVE LOGIC HERE
-    randVal = random.randint(0, 100)
-    
+
+    # Call sometimes
+    if random.randint(0, 20) == 0:
+        return {
+            "response_type": "call",
+        }
+
+    bid = game_state['bid']
+
+    # Raise
+    bid[1] += 1
+    if bid[1] > 6:
+        bid = [bid[0]+1, 1]
+
     return {
         "response_type": "bid",
-        "bid": [randVal,4]
+        "bid": bid
     }
     
 def MoveHandlerProcess(context, moveResponse_socket_path, gameState_socket_path):
@@ -44,15 +57,9 @@ def MoveHandlerProcess(context, moveResponse_socket_path, gameState_socket_path)
     while True:
         try:
             # Receive game state and get response
-            game_state = receiver.recv_json()
-            respose = CalculateMove(game_state)
-
-            # Add required metadata
-            respose["message_type"] = "BotMove",
-            respose["game_uuid"] = game_state["game_uuid"],
-
-            sender.send_multipart([game_state['game_uuid'].encode('utf-8'), json.dumps(BOT_REGISTRY_DATA).encode('utf-8')])
-
+            game_uuid, game_state = receiver.recv_multipart()
+            respose = CalculateMove(json.loads(game_state))
+            sender.send_multipart([game_uuid, json.dumps(respose).encode('utf-8')])
         except zmq.ZMQError as e:
             print(f"MoveHandlerThread error: {e}")
             break
@@ -114,17 +121,16 @@ while True:
     try:
         # Poll for messages with 10 second timeout
         # This timeout is required to make sure the server gets pinged every 10 seconds
-        socks = dict(poller.poll(10000))
+        socks = dict(poller.poll(int(args.ping_freq_mS)))
 
         # Handle incoming client requests
         if server_socket in socks and socks[server_socket] == zmq.POLLIN:
-            _, message = server_socket.recv_multipart()
-            message = json.loads(message.decode('utf-8'))
-            print(message)
-            if 'message_type' in message and message['message_type'] == 'GameState':
-                gameState_socket.send_json(message)
+            fulMsg = server_socket.recv_multipart()
+            _, messageType, *messageData = fulMsg
+            if messageType == b'GameState':
+                gameState_socket.send_multipart(messageData)
             else:
-                print(f"WARNING: Unknown message type {message}")
+                print(f"WARNING: Unhandled message type {messageType}")
 
         # Handle responses from backend socket
         elif moveResponse_socket in socks and socks[moveResponse_socket] == zmq.POLLIN:
@@ -133,7 +139,7 @@ while True:
 
         # Ping server if timed out
         elif len(socks) == 0:
-            print(f"Poller timed out, sending metadata . . .")
+            print(f"Pinging server metadata . . .")
             register_bot()
         
         # Something is afoot
