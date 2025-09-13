@@ -384,7 +384,7 @@ def runServer(server_config):
     while True:
         # Loop receiving new connections until new tourney starts
         pings_sent = False
-        while time.time() < lastTourneyTime + server_config['tourney_freq_S']:
+        while time.time() < lastTourneyTime + server_config['tourney_freq_S'] or not pings_sent:
             socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
 
             # Ping all bots 1 second before tourney starts
