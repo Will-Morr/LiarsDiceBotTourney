@@ -204,10 +204,17 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
     "tourney_game_count": 10,
     "scoring_method": "531",
     "score_multiplier": 1.0,
+    "results_by_bot": {e1a75222-dcff-4744-8c1f-54b9d4b86cce": [[2,0,1],[3,6,4]], ...},
+	"bot_count": 6,
+    "bot_fullnames": ["Random_1.0_JaneDoe", ...],
+    "bot_player": ["JaneDoe", ...],
+    "bot_name": ["Random", ...],
+    "bot_version": ["1.0", ...],
+    "bot_scores": [0.9, ...],
     "start_time": "2025-09-04 12:44:57",
     "end_time": "2025-09-04 12:45:15",
+	"tourney_index": 0,
     "tourney_uuid": "fd439123-02fc-4a2f-88ab-cec335643bf5",
-    "bot_scores": [11, ...]
     "bot_uuids": ["c13ca266-51b5-4ab2-9b4f-75e24e131975", ...],
     "game_uuids": ["c7bc8469-dc7f-4019-9add-b742209559c0", ...],
     "game_logs": [ { ... } ]
@@ -222,15 +229,27 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 
 `score_multiplier` how much this game should be weighted in case we need this
 
+`results_by_bot` arrays listing placement and player count of games this tourney for each bot
+
+`bot_count` number of bots in tourney
+
+`bot_fullnames` full name strings for each bot
+
+`bot_player` player for each bot
+
+`bot_name`  for each bot
+
+`bot_version`  for each bot
+
+`bot_scores` points scored this tourney for each bot
+
 `start_time` start timestamp of game
 
 `end_time` end timestamp of game
 
-`tourney_uuid` unique ID of tourney
-
 `tourney_index` index of tourney, start counting from 0 on server boot
 
-`bot_scores` points scored by each bot during this tourney
+`tourney_uuid` unique ID of tourney
 
 `bot_uuids` list of uuids of bots included
 
