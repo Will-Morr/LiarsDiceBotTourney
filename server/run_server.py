@@ -308,7 +308,6 @@ def tourneyLogsThread(context, server_config):
     log_path = Path(server_config['logs_path'])
     os.makedirs(log_path / "json" / "clients", exist_ok=True)
     os.makedirs(log_path / "json" / "tournies", exist_ok=True)
-    os.makedirs(log_path / "json" / "games", exist_ok=True)
     
     while True:
         socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
