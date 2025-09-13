@@ -53,14 +53,15 @@ def rollNewDice(game_state):
     return new_hands
 
 def goToLegalPlayer(game_state):
-    nextPlayer = game_state['bot_index'] % game_state["player_count"]
+    nextPlayer = game_state['bot_index']
     for i in range(game_state["player_count"]*2): # Loop through twice as to never hang
-        nextPlayer += 1
-        if nextPlayer >= len(game_state["dice_counts"]):
-            nextPlayer -= len(game_state["dice_counts"])
+        if nextPlayer >= game_state["player_count"]:
+            nextPlayer -= game_state["player_count"]
 
         if game_state["dice_counts"][nextPlayer] > 0:
             break
+
+        nextPlayer += 1
 
         if nextPlayer == game_state['bot_index']:
             print(f"FATAL ERROR All players have no dice \n{game_state['dice_counts']}\n\n{json.dumps(game_state, indent=4)}")
@@ -187,7 +188,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
                 elif response['response_type'] == 'bid':
                     if 'bid' not in response: okayResponse = False
                     elif response['bid'][0] <= 0: okayResponse = False
-                    elif response['bid'][1] >= 6: okayResponse = False
+                    elif response['bid'][1] > 6: okayResponse = False
             except:
                 okayResponse = False
 
@@ -204,9 +205,8 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
                     dice_sums[1:] += dice_sums[0]
                 
                 bidRealValue = dice_sums[game_state['bid'][1]-1] # subtract 1 for zero indexing
-
                 # actually check if bid was legitimate
-                if bidRealValue < game_state['bid'][1]:
+                if bidRealValue > game_state['bid'][0]:
                     game_state, current_hands = endRound("bad_call", game_state, current_hands, bot_index, bot_index)
                 else:
                     game_state, current_hands = endRound("good_call", game_state, current_hands, last_bidder, bot_index)
