@@ -1,29 +1,34 @@
 # Liars Dice Bot Tourney
 
-WORK IN PROGRESS, NON FUNCTIONAL ATM
+WORK IN PROGRESS
 
-This repo contains a system for running a liars dice bot tournament. A central computer continously runs games (`game_server.py`) and each player runs a bot locally on their computer (`client_example.py`). 
+This repo contains a system for running a liars dice bot tournament. A central computer continuously runs games (`game_server.py`) and each player runs a bot locally on their computer (`client_example.py`). 
+
+We want to run as many games as quickly as possible, so both the server and client are multi-threaded to run many games in parallel. This also lets us run a higher time per turn while still getting a large number of games per minute.
+
+The current example client plays randomly but is functional, if very bad and occasionally tanking penalties for illegal moves. 
 
 ## TODO
- - Core game engine
  - Matchmaking, probably random but we need to make sure bots don't play themselves
  - Logging, likely just dumping all bot, game, and tourney jsons into folders
  - Database, ingesting all of this into a queryable table
  - Leaderboard, pull and visualize data from database
  - Example bots, we need a few bare-bones bots to test the system
-
-The current client plays randomly but should be functional, if very bad and occasionally tanking penalties for illegial moves. 
+ - Other languages? If anyone wants to use any tool other than python feel free to re-implement default_client in a language of your choice and make a PR. 
 
 ## Schemas
+
+This section is all the info you really need to make a bot. You update the existing metadata array in the example, write something to process game state, and then return a bot response. 
 
 ### Bot Metadata
 On startup, the client sends the server session data. 
 
 The first section is hardcoded metadata for this specific bot. `player` should just be your full name and is how we track score. Naming your bots and tracking updates would be appreciated to make poking around in the data more clear. 
 
-Please also specify the other tags (which are somewhat TBD right now). Having flags for substantial advantages (like being a full time software engineer or using machine learning instead of pure logic) would open up the playing field to more players. Even if there is a clear dominant strategy using a more sophisticated tool it would be fun to have a best manual bot or best amatuer bot catagory. 
+Please also specify the other tags (which are somewhat TBD right now). Having flags for substantial advantages (like being a full time software engineer or using machine learning instead of pure logic) would open up the playing field to more players. Even if there is a clear dominant strategy using a more sophisticated tool it would be fun to have a best manual bot or best amateur bot category. 
 
 `session_uuid` is the randomly generated uuid used to track this bot. It is regenerated every time you restart the bot. 
+
 `full_title` is just all the identifier as one string for easy display. 
 
 ```
@@ -127,7 +132,9 @@ This should be all of the data to estimate the other player's dice.
 ```
 
 `response_type` Either "bid" or "call"
+
 `bid` If response is bid, then bid value
+
 `game_uuid` Which game this response goes to
 
 
@@ -213,15 +220,25 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 ```
 
 `tourney_tag` arbitrary identifier for what this tourney is a part of. Useful to separate test matches from real gameplay
+
 `tourney_games` how many games in this tourney
+
 `scoring_method` how score is rewarded based on performance. 531 is first place gets 5 points, second gets 3, and third gets 1.
+
 `score_multiplier` how much this game should be weighted in case we need this
+
 `start_time` start timestamp of game
+
 `end_time` end timestamp of game
+
 `tourney_uuid` unique ID of tourney
+
 `tourney_index` index of tourney, start counting from 0 on server boot
+
 `bot_scores` points scored by each bot during this tourney
+
 `bot_uuids` list of uuids of bots included
+
 `game_uuids` list of uuids of games played
 
 ### Notes on why things are like that
