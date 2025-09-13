@@ -195,6 +195,12 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
             # Current bot loses if the response is bad
             if not okayResponse:
                 game_state, current_hands = endRound("error_bad_response", game_state, current_hands, bot_index, bot_index)
+                gameEngine_socket.send_multipart([
+                    b'', 
+                    b'PrintToBot',
+                    player_uuids[game_state['bot_index']],
+                    f"Bad response: {json.dumps(response)}".encode('utf-8')
+                ])
 
             # if call, calculate if it is correct
             elif response['response_type'] == 'call':
@@ -329,7 +335,7 @@ def tourneyLogsThread(context, server_config):
                 # msg_data = json.loads(messageData[0])
                 # json.dump(msg_data, open(log_path / "json" / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
             else:
-                print(f"Invalid Message Type Received: {messageType}")
+                print(f"Invalid message type received on log_socket: {messageType}")
                 continue
 
 def runServer(server_config):
@@ -486,7 +492,7 @@ def runServer(server_config):
                     # Move data is [game_uuid, move_json] so pass those directly to game engines
                     gameEngine_socket.send_multipart([messageData[0], b'', messageData[1]])
                 else:
-                    print(f"Invalid Message Type Received: {messageType}")
+                    print(f"Invalid message type received on gameEngine_socket: {messageType}")
                     continue
             
             # Handle engine communication
@@ -502,6 +508,12 @@ def runServer(server_config):
                 elif messageType == b'GameLog':
                     game_logs.append(messageData[0])
                     broadcast_socket.send_multipart([b'GameLog', messageData[0]])
+
+                elif messageType == b'PrintToBot':
+                    bot_socket.send_multipart([messageData[0], b'', b'Print', messageData[1]])
+                else:
+                    print(f"Invalid message type received on broadcast_socket: {messageType}")
+                    continue
 
             # Something is afoot
             else:

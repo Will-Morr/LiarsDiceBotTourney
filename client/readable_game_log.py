@@ -11,6 +11,7 @@ parser.add_argument("-f", "--file_path", help="File to process")
 parser.add_argument("-p", "--player", help="Player to filter for")
 parser.add_argument("-b", "--bot", help="Bot to filter for")
 parser.add_argument("-e", "--export_path", help="File to export to")
+parser.add_argument("-s", "--summary_only", action='store_true', help="Only log tourney summaries")
 args = parser.parse_args()
 
 def filter_indices(index_list, search_list, search_val):
@@ -39,48 +40,48 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
         if export_path:
             export_path.write(line+'\n')
 
+    if not args.summary_only:
+        for log in tourney_data['game_logs']:
+            # Skip if none of our target filtered values are in the logs
+            if set(log['bot_uuids']).isdisjoint(keep_bot_uuids):
+                continue
 
-    for log in tourney_data['game_logs']:
-        # Skip if none of our target filtered values are in the logs
-        if set(log['bot_uuids']).isdisjoint(keep_bot_uuids):
-            continue
+            # Get full names for each bot
+            full_names = [full_names_match[uuid] for uuid in log['bot_uuids']]
+            max_name_len = 0
+            for foo in full_names:
+                if len(foo) > max_name_len:
+                    max_name_len = len(foo)
+            max_name_len += 1
 
-        # Get full names for each bot
-        full_names = [full_names_match[uuid] for uuid in log['bot_uuids']]
-        max_name_len = 0
-        for foo in full_names:
-            if len(foo) > max_name_len:
-                max_name_len = len(foo)
-        max_name_len += 1
-
-        print_helper(f"\n\n{'='*75}\n\nGame Summary:")
-        print(f"Place| {'Name'.ljust(max_name_len, ' ')} | Max Ping |")
-        for idx in np.argsort(log['bot_rankings']):
-            print_helper(f"{log['bot_rankings'][idx]: 4d} | {full_names[idx].ljust(max_name_len)} | {log['ping_maximums_mS'][idx]: 3.1f} | ")
-        
-        # Iterate through games
-        for round in log['game_history']:
-            print_helper(f"\n{'========== New Hands:'.ljust(max_name_len)}     {'  '.join([str(i) for i in range(1, 7)])}")
-
-            # Print hands in order
+            print_helper(f"\n\n{'='*75}\n\nGame Summary:")
+            print(f"Place| {'Name'.ljust(max_name_len, ' ')} | Max Ping |")
             for idx in np.argsort(log['bot_rankings']):
-                faceString = ""
-                for foo in round['face_counts'][idx]:
-                    if foo > 0:
-                        faceString += str(foo).rjust(3, ' ')
-                    else:
-                        faceString += '   '
+                print_helper(f"{log['bot_rankings'][idx]: 4d} | {full_names[idx].ljust(max_name_len)} | {log['ping_maximums_mS'][idx]: 3.1f} | ")
+            
+            # Iterate through games
+            for round in log['game_history']:
+                print_helper(f"\n{'========== New Hands:'.ljust(max_name_len)}     {'  '.join([str(i) for i in range(1, 7)])}")
 
-                print_helper(f"{full_names[idx].ljust(max_name_len)} : {faceString}")
-            print(f"========== Moves: ")
-            # Print bids in order
-            for count, face, idx in round['bid_history']:
-                print_helper(f"Bid {count: 2d} {face} {full_names[idx].ljust(max_name_len)}")
+                # Print hands in order
+                for idx in np.argsort(log['bot_rankings']):
+                    faceString = ""
+                    for foo in round['face_counts'][idx]:
+                        if foo > 0:
+                            faceString += str(foo).rjust(3, ' ')
+                        else:
+                            faceString += '   '
 
-            print_helper(f"{round['result']} {full_names[round['calling_player']].ljust(max_name_len)}")
+                    print_helper(f"{full_names[idx].ljust(max_name_len)} : {faceString}")
+                print(f"========== Moves: ")
+                # Print bids in order
+                for count, face, idx in round['bid_history']:
+                    print_helper(f"Bid {count: 2d} {face} {full_names[idx].ljust(max_name_len)}")
+
+                print_helper(f"{round['result']} {full_names[round['calling_player']].ljust(max_name_len)}")
 
     # Consolidate logs to print some big stats
-    response_counts = dict(zip(log['bot_uuids'], [{'bid':0} for i in tourney_data['bot_uuids']]))
+    response_counts = dict(zip(tourney_data['bot_uuids'], [{'bid':0} for i in tourney_data['bot_uuids']]))
     df = pd.DataFrame({
         # 'bot_uuids': tourney_data['bot_uuids'],
         'full_names': tourney_data['bot_fullnames'],
@@ -108,19 +109,6 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
     print(f"\n\nAggregate bot move results by frequency")
     df = df.sort_values(by=['scores'], ascending=False)
     print(df)
-
-
-
-
-
-        # for round in log['game_history']:
-        #     for count, face, idx in round['bid_history']:
-                
-    
-
-        
-        # if filter_player and filter_player not in log[] 
-
 
 if args.export_path:
     export_file = open(args.export_path, 'w')

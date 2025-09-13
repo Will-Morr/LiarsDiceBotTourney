@@ -120,7 +120,6 @@ while True:
 
         # Ping server if timed out
         elif len(socks) == 0:
-            print(f"Pinging server metadata . . .")
             register_bot()
         
         # Something is afoot
