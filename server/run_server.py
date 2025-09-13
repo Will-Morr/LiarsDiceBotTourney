@@ -45,7 +45,7 @@ def botRegistration(clients, id, data, broadcast_socket = None):
         clients[id]['last_ping'] = time.time()
 
 def rollNewDice(game_state):
-    player_count = len(game_state['dice_counts'])
+    player_count = game_state['player_count']
     new_hands = [[0] * 6 for _ in range(player_count)] # Nested list of zeros
     for botIdx in range(player_count):
         for i in range(game_state['dice_counts'][botIdx]):
@@ -53,14 +53,18 @@ def rollNewDice(game_state):
     return new_hands
 
 def goToLegalPlayer(game_state):
-    nextPlayer = game_state['bot_index'] % len(game_state["dice_counts"])
-    while game_state["dice_counts"][nextPlayer] == 0:
+    nextPlayer = game_state['bot_index'] % game_state["player_count"]
+    for i in range(game_state["player_count"]*2): # Loop through twice as to never hang
         nextPlayer += 1
-        if nextPlayer == game_state['bot_index']:
-            print("FATAL ERROR All players have no dice")
-            exit()
         if nextPlayer >= len(game_state["dice_counts"]):
             nextPlayer -= len(game_state["dice_counts"])
+
+        if game_state["dice_counts"][nextPlayer] > 0:
+            break
+
+        if nextPlayer == game_state['bot_index']:
+            print(f"FATAL ERROR All players have no dice \n{game_state['dice_counts']}\n\n{json.dumps(game_state, indent=4)}")
+            exit()
     game_state['bot_index'] = nextPlayer
     return game_state
 
@@ -104,7 +108,8 @@ def endRound(result, game_state, face_counts, losing_player, calling_player):
 
 def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_uuid, timeout_Ms):
     # Init game state
-    start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    start_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    start_time = time.time()
     player_count = len(player_uuids)
     game_uuid = str(uuid.uuid4())
     game_state =  {
@@ -161,12 +166,18 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         response_ping = time.time()
         socks = dict(poller.poll(timeout_Ms))
         response_ping = time.time() - response_ping
-        ping_times[bot_index] = response_ping
+        ping_times[bot_index].append(response_ping)
 
         # Handle move
         if gameEngine_socket in socks and socks[gameEngine_socket] == zmq.POLLIN:
             _, response = gameEngine_socket.recv_multipart()
             
+            # Set last bidder if not first bid
+            if len(game_state['bid_history']) > 0:
+                last_bidder = game_state['bid_history'][-1][2]
+            else:
+                last_bidder = bot_index
+
             # Sanitize response input
             okayResponse = True
             try:
@@ -180,18 +191,12 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
             except:
                 okayResponse = False
 
+            # Current bot loses if the response is bad
             if not okayResponse:
                 game_state, current_hands = endRound("error_bad_response", game_state, current_hands, bot_index, bot_index)
-                continue
-
-            # Set last bidder if not first bid
-            if len(game_state['bid_history']) > 0:
-                last_bidder = game_state['bid_history'][-1][2]
-            else:
-                last_bidder = bot_index
 
             # if call, calculate if it is correct
-            if response['response_type'] == 'call':
+            elif response['response_type'] == 'call':
                 dice_sums = np.sum(np.array(current_hands), axis=0)
                 
                 # Add ones if wild
@@ -247,6 +252,11 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         # Break if only one bot remains
         if sum(game_state['dice_counts']) == max(game_state['dice_counts']):
             break
+        
+        # Timeout if exceeded tourney timeout
+        if (time.time() - start_time)*1000 > server_config['game_timeout_mS']:
+            print(f"CRITICAL: GAME ENGINE EXCEEDED TIMEOUT. Game state:{game_state}")
+            return
 
     # Add winner to rankings
     game_state["bot_rankings"].append(game_state['bot_index'])
@@ -265,7 +275,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         "game_uuid": game_uuid,
         "tourney_uuid": tourney_uuid,
 
-        "start_time": start_time,
+        "start_time": start_timestamp,
         "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "ping_averages_mS": [1000*np.average(arr) for arr in ping_times],
         "ping_maximums_mS": [1000*np.max(arr) for arr in ping_times]
@@ -416,11 +426,10 @@ def runServer(server_config):
         # TODO Don't just put every bot in the same games
         game_threads = []
         game_logs = []
-        game_threads_live = True
         print(f"Kicking off {server_config['games_per_tourney']} games")
+        game_threads_live = server_config['games_per_tourney']
         for i in range(server_config['games_per_tourney']):
             bot_uuids = list(clients.keys())
-            print(f"Starting game {i} with UUIDs {bot_uuids}")
             t = threading.Thread(
                 target=GameEngineThread, 
                 args=[context, server_config['dice_count'], server_config['do_drop_wilds'], bot_uuids, tourney_uuid, server_config['move_timeout_mS']],
@@ -432,21 +441,22 @@ def runServer(server_config):
 
         # Handle re-routing ZMQ messages to engines
         # Wait for all games to return or hang
-        while game_threads_live:
+        while game_threads_live > 0:
             socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
 
             # Timeout hit, check to make sure all games threads are still live
             if len(socks) == 0:
                 # Check for live game threads
-                game_threads_live = False
+                game_threads_live = 0
                 for t in game_threads:
                     if t.is_alive():
-                        game_threads_live = True
-                        break
-                if not game_threads_live:
+                        game_threads_live += 1
+                if game_threads_live == 0:
                     print("WARNING All game threads returned without full logs")
                     # We timed out despite all games having returned. This should not happen
                     break
+                else:
+                    print(f"{game_threads_live} live threads")
             
             # Handle bot communication
             elif bot_socket in socks and socks[bot_socket] == zmq.POLLIN:                    
