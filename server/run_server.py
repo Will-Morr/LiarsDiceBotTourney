@@ -76,6 +76,10 @@ def endRound(result, game_state, face_counts, losing_player, calling_player):
     # Losing player loses a die but goes first next round
     game_state["dice_counts"][losing_player] -= 1
 
+    # Record if any player went out
+    if game_state["dice_counts"][losing_player] == 0:
+        game_state["bot_rankings"].append(losing_player)
+
     # Get who starts next round (assuming players are out) this 
     game_state = goToLegalPlayer(game_state)
 
@@ -117,6 +121,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         "round_count": 0,
 
         "round_history": [],
+        "bot_rankings": [],
 
         "game_uuid": game_uuid
     }
@@ -243,17 +248,14 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
         if sum(game_state['dice_counts']) == max(game_state['dice_counts']):
             break
 
-    # Def not the fastest way to do this but it runs once per round so eh
-    bot_rankings = []
-    for round in game_state['round_history']:
-        for playerIdx, counts in enumerate(round['face_counts']):
-            if sum(counts) == 0 and playerIdx not in bot_rankings:
-                bot_rankings = [playerIdx] + bot_rankings
-    
+    # Add winner to rankings
+    game_state["bot_rankings"].append(game_state['bot_index'])
+    game_state["bot_rankings"].reverse() # Index 0 is winner and so on
+
     # Build game log
     game_log = {
         "game_history": [game_state['round_history']],
-        "bot_rankings": bot_rankings,
+        "bot_rankings": game_state["bot_rankings"],
 
         "bot_count": len(player_uuids),
         "dice_count": dice_count,
@@ -289,9 +291,9 @@ def tourneyLogsThread(context, server_config):
     poller.register(log_socket, zmq.POLLIN)
 
     log_path = Path(server_config['logs_path'])
-    os.makedirs(log_path / "clients", exist_ok=True)
-    os.makedirs(log_path / "tournies", exist_ok=True)
-    os.makedirs(log_path / "games", exist_ok=True)
+    os.makedirs(log_path / "json" / "clients", exist_ok=True)
+    os.makedirs(log_path / "json" / "tournies", exist_ok=True)
+    os.makedirs(log_path / "json" / "games", exist_ok=True)
     
     while True:
         socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
@@ -308,13 +310,13 @@ def tourneyLogsThread(context, server_config):
 
             if messageType == b'RegisterBot':
                 msg_data = json.loads(messageData[0])
-                json.dump(msg_data, open(log_path / "clients" / f"{msg_data['session_uuid']}.json", 'w'), indent='\t')
+                json.dump(msg_data, open(log_path / "json" / "clients" / f"{msg_data['session_uuid']}.json", 'w'), indent='\t')
             elif messageType == b'TourneyLog':
                 msg_data = json.loads(messageData[0])
-                json.dump(msg_data, open(log_path / "tournies" / f"{msg_data['tourney_uuid']}.json", 'w'), indent='\t')
+                json.dump(msg_data, open(log_path / "json" / "tournies" / f"{msg_data['tourney_uuid']}.json", 'w'), indent='\t')
             elif messageType == b'GameLog':
                 msg_data = json.loads(messageData[0])
-                json.dump(msg_data, open(log_path / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
+                json.dump(msg_data, open(log_path / "json" / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
             else:
                 print(f"Invalid Message Type Received: {messageType}")
                 continue
@@ -492,7 +494,7 @@ def runServer(server_config):
         results_by_bot = {foo:[[], []] for foo in bot_uuid_str}
         for log in game_logs:
             for botIdx, fooUuid in enumerate(log['bot_uuids']):
-                results_by_bot[fooUuid][0].append(botIdx)
+                results_by_bot[fooUuid][0].append(log['bot_rankings'][botIdx])
                 results_by_bot[fooUuid][1].append(log['bot_count'])
         full_names = [clients[fooUuid]['metadata']['full_title'] for fooUuid in bot_uuids]
 
