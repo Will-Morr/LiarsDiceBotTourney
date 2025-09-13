@@ -106,6 +106,8 @@ while True:
             _, messageType, *messageData = fulMsg
             if messageType == b'GameState':
                 gameState_socket.send_multipart(messageData)
+            elif messageType == b'Print':
+                print(f"Received: {messageData[0].decode('utf-8')}")
             else:
                 print(f"WARNING: Unhandled message type {messageType}")
 

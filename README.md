@@ -210,6 +210,7 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
     "bot_scores": [11, ...]
     "bot_uuids": ["c13ca266-51b5-4ab2-9b4f-75e24e131975", ...],
     "game_uuids": ["c7bc8469-dc7f-4019-9add-b742209559c0", ...],
+    "game_logs": [ { ... } ]
 }
 ```
 
@@ -234,6 +235,8 @@ In the previous round, player 1 called player 0s call of 20 twos. This was a goo
 `bot_uuids` list of uuids of bots included
 
 `game_uuids` list of uuids of games played
+
+`game_logs` is a list of full game log objects
 
 ### Notes on why things are like that
 

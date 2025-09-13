@@ -246,7 +246,6 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
 
         # Handle bot timeout
         elif len(socks) == 0:
-            print(f"Bot timed out")
             game_state, current_hands = endRound("error_timeout", game_state, current_hands, bot_index, bot_index)
 
         # Break if only one bot remains
@@ -323,10 +322,12 @@ def tourneyLogsThread(context, server_config):
                 json.dump(msg_data, open(log_path / "json" / "clients" / f"{msg_data['session_uuid']}.json", 'w'), indent='\t')
             elif messageType == b'TourneyLog':
                 msg_data = json.loads(messageData[0])
-                json.dump(msg_data, open(log_path / "json" / "tournies" / f"{msg_data['tourney_uuid']}.json", 'w'), indent='\t')
+                json.dump(msg_data, open(log_path / "json" / "tournies" / f"{str(msg_data['tourney_index']).rjust(8, '0')}_{msg_data['tourney_uuid']}.json", 'w'), indent='\t')
             elif messageType == b'GameLog':
-                msg_data = json.loads(messageData[0])
-                json.dump(msg_data, open(log_path / "json" / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
+                # We are only logging tourney logs now
+                pass
+                # msg_data = json.loads(messageData[0])
+                # json.dump(msg_data, open(log_path / "json" / "games" / f"{msg_data['tourney_uuid']}_{msg_data['game_uuid']}.json", 'w'), indent='\t')
             else:
                 print(f"Invalid Message Type Received: {messageType}")
                 continue
@@ -370,6 +371,7 @@ def runServer(server_config):
 
     # List of clients that are active
     clients = {}
+    tourney_idx = -1
     
     # Giant loop to run tourneys repeatedly
     while True:
@@ -416,10 +418,12 @@ def runServer(server_config):
         if len(clients) < 2:
             print(f"Not enough clients to start tourney ({len(clients)})")
             continue
-
-        print(f"Starting tourney with {len(clients)} bots")
+        
+        tourney_idx += 1
+        tourney_client_uuids = list(clients.keys())
         tourney_uuid = str(uuid.uuid4())
         tourney_start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"\n\nStarting tourney {tourney_idx} with {len(clients)} bots")
 
         
         # Kick off game engines
@@ -495,12 +499,12 @@ def runServer(server_config):
             if len(game_logs) == server_config['games_per_tourney']:
                 break
 
-        print(f"TOURNEY COMPLETE\n\n")
+        print(f"Tourney complete")
 
         # Parse game logs
         game_logs = [json.loads(log) for log in game_logs] # Load game logs as json
-        bot_uuid_str = [foo.decode() for foo in clients.keys()]
-        print(bot_uuid_str)
+        bot_uuid_str = [foo.decode() for foo in tourney_client_uuids]
+        
         results_by_bot = {foo:[[], []] for foo in bot_uuid_str}
         for log in game_logs:
             for botIdx, fooUuid in enumerate(log['bot_uuids']):
@@ -529,6 +533,26 @@ def runServer(server_config):
         # Add score mult
         tourney_score = [score * server_config['score_mult'] for score in tourney_score]
 
+        # Get score for each player
+        player_name_match = np.array([clients[fooUuid]['metadata']['player'] for fooUuid in tourney_client_uuids])
+        player_scores = {}
+        for name, count in zip(*np.unique(player_name_match, return_counts=True)):
+            if count > server_config['max_bots_per_player']:
+                print(f"HEADS UP: Player {name} is running {count} bots. No points awarded")
+                warning_message = f"YOU ARE RUNNING {count} BOTS AND THUS SCORING NO POINTS. MAX BOTS IS {server_config['max_bots_per_player']}"
+                for bot in np.array(bot_uuids)[np.where(player_name_match == name)[0]]:
+                    bot_socket.send_multipart([
+                        bot,
+                        b'',
+                        b'Print',
+                        warning_message.encode('utf-8'),
+                    ])
+                player_scores[name] = 0
+            else:
+                scores = np.array(tourney_score)[player_name_match == name]
+                player_scores[name] = np.max(scores)
+                print(f"{name} score {scores}")
+
         # Generate tourney logs
         tourney_logs = {
             "tourney_tag": server_config['tourney_tag'],
@@ -543,8 +567,10 @@ def runServer(server_config):
             "start_time": tourney_start_time,
             "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             "tourney_uuid": tourney_uuid,
+            "tourney_index": tourney_idx,
             "bot_uuids": bot_uuid_str,
             "game_uuids": [log['game_uuid'] for log in game_logs],
+            "game_logs": [game_logs],
         }           
 
         # Send responses to logger
@@ -552,6 +578,22 @@ def runServer(server_config):
             b'TourneyLog',
             json.dumps(tourney_logs).encode('utf-8')
         ])
+
+        # Send summary to client
+        scoreRanking = np.argsort(tourney_score)[::-1]
+        for idx, fooUuid in enumerate(bot_uuids):
+            player_score = player_scores[player_name_match[idx]]
+            bot_rank = np.where(scoreRanking == idx)[0][0]
+            
+            addComplement = ""
+            if bot_rank == 0: addComplement = " (nice!)"
+            printStatement = f"Placed {bot_rank+1}/{len(tourney_client_uuids)}{addComplement}, scoring {tourney_score[idx]: 3.3f} points"
+            bot_socket.send_multipart([
+                fooUuid,
+                b'',
+                b'Print',
+                printStatement.encode('utf-8'),
+            ])
 
         # Repeat
 
