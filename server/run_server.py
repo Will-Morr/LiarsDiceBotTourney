@@ -4,7 +4,6 @@ import json
 import zmq
 import threading
 import time
-import queue
 import uuid
 import numpy as np
 import os
@@ -212,7 +211,7 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
                 
                 bidRealValue = dice_sums[game_state['bid'][1]-1] # subtract 1 for zero indexing
                 # actually check if bid was legitimate
-                if bidRealValue > game_state['bid'][0]:
+                if bidRealValue >= game_state['bid'][0]:
                     game_state, current_hands = endRound("bad_call", game_state, current_hands, bot_index, bot_index)
                 else:
                     game_state, current_hands = endRound("good_call", game_state, current_hands, last_bidder, bot_index)
@@ -282,8 +281,8 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
 
         "start_time": start_timestamp,
         "end_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "ping_averages_mS": [1000*np.average(arr) for arr in ping_times],
-        "ping_maximums_mS": [1000*np.max(arr) for arr in ping_times]
+        "ping_averages_mS": [1000*np.average(arr) if len(arr) > 0 else 0 for arr in ping_times],
+        "ping_maximums_mS": [1000*np.max(arr) if len(arr) > 0 else 0 for arr in ping_times]
     }
 
     # Send game log
