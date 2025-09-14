@@ -1,6 +1,7 @@
 {
     "games_per_tourney": 10,
     "tourney_freq_S": 5,
+    "tourney_min_gap_S": 1,
     "tourney_tag": "default",
     "dice_count": 5,
     "player_count": 4,

@@ -382,6 +382,11 @@ def runServer(server_config):
     
     # Giant loop to run tourneys repeatedly
     while True:
+        # Set minimum time gap between tourneys
+        if time.time() > lastTourneyTime + server_config['tourney_freq_S'] - server_config['tourney_min_gap_S']:
+            print(f"Tourney ran over time, setting mandatory {server_config['tourney_min_gap_S']} second gap")
+            lastTourneyTime = time.time() + server_config['tourney_min_gap_S']
+
         # Loop receiving new connections until new tourney starts
         pings_sent = False
         while time.time() < lastTourneyTime + server_config['tourney_freq_S'] or not pings_sent:
@@ -389,7 +394,7 @@ def runServer(server_config):
 
             # Ping all bots 1 second before tourney starts
             # Because we only time out when the server starts, 
-            if not pings_sent and time.time() < lastTourneyTime + server_config['tourney_freq_S'] - 1.0:
+            if not pings_sent and time.time() > lastTourneyTime + server_config['tourney_freq_S'] - 1.0:
                 pings_sent = True
                 last_ping_time = time.time()
                 for id in list(clients.keys()):
