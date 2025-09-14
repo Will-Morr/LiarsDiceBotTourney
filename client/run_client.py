@@ -4,7 +4,7 @@ import zmq
 import time
 import json
 import random
-import threading
+from multiprocessing import Process
 import os
 import importlib.util
 
@@ -26,7 +26,9 @@ spec.loader.exec_module(bot_module)
 CalculateMove = bot_module.calculateMove
 BOT_REGISTRY_DATA = bot_module.BOT_REGISTRY_DATA
 
-def MoveHandlerProcess(context, moveResponse_socket_path, gameState_socket_path):
+def MoveHandlerProcess(moveResponse_socket_path, gameState_socket_path):
+    context = zmq.Context()
+
     # Socket to get game states
     receiver = context.socket(zmq.PULL)
     receiver.connect(gameState_socket_path)
@@ -62,15 +64,17 @@ server_socket.setsockopt_string(zmq.IDENTITY, SESSION_GUID) # Set ID
 server_url = f"tcp://{args.zmq_address}:5555"
 server_socket.connect(server_url)
 
+os.makedirs("sock", exist_ok=True)
+
 # Backend socket for thread communication
 moveResponse_socket = context.socket(zmq.SUB)
-moveResponse_socket_path = f"inproc://sock/{SESSION_GUID}_move-response.sock" # Include GUID in socket path so we can handle multiple sessions
+moveResponse_socket_path = f"ipc://sock/{SESSION_GUID}_move-response.sock" # Include GUID in socket path so we can handle multiple sessions
 moveResponse_socket.bind(moveResponse_socket_path)
 moveResponse_socket.setsockopt(zmq.SUBSCRIBE, b"")
 
 # Backend socket to send 
 gameState_socket = context.socket(zmq.PUSH)
-gameState_socket_path = f"inproc://sock/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
+gameState_socket_path = f"ipc://sock/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
 gameState_socket.bind(gameState_socket_path)
 
 # Send metadata on boot
@@ -85,13 +89,13 @@ poller.register(moveResponse_socket, zmq.POLLIN)
 
 # Kick off processes to convert game states into moves
 for i in range(args.threads):
-    t = threading.Thread(
-        target=MoveHandlerProcess, 
-        args=[context, moveResponse_socket_path, gameState_socket_path],
+    p = Process(
+        target=MoveHandlerProcess,
+        args=[moveResponse_socket_path, gameState_socket_path],
         name=f"MoveHandlerProcess_{SESSION_GUID}_{i}",
         daemon=True
     )
-    t.start()
+    p.start()
 
 # Main loop
 print("Handlers started, running main loop")

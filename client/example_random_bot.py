@@ -13,7 +13,7 @@ BOT_REGISTRY_DATA = {
 
 def calculateMove(game_state):
     # 1/20 chance of randomly calling
-    if random.randint(0, 20) == 0:
+    if random.randint(0, 19) == 0:
         return {
             "response_type": "call",
         }
