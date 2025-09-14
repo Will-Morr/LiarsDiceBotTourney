@@ -438,7 +438,7 @@ def runServer(server_config):
         lastTourneyTime = time.time()
 
         # Make sure we have enough bots
-        if len(clients) < 2:
+        if len(clients) < server_config['player_count'][0]:
             print(f"Not enough clients to start tourney ({len(clients)})")
             continue
         
@@ -450,15 +450,17 @@ def runServer(server_config):
 
         
         # Kick off game engines
-        # TODO Don't just put every bot in the same games
         game_threads = []
         game_logs = []
         print(f"Kicking off {server_config['games_per_tourney']} games")
         game_threads_live = server_config['games_per_tourney']
         bot_uuids = list(clients.keys())
+        # slots_left_per_bot = server_config['games_per_tourney'] * np.ones(len(bot_uuids))
         for i in range(server_config['games_per_tourney']):
-            # Shuffle order of bots
-            game_bot_uuids = deepcopy(bot_uuids)
+            # Get new set of bots
+            nextGameCount = random.randint(server_config['player_count'][0], min(len(clients), server_config['player_count'][1]))
+            game_bot_uuids = random.sample(bot_uuids, nextGameCount)
+            game_bot_uuids = deepcopy(game_bot_uuids)
             random.shuffle(game_bot_uuids)
             t = threading.Thread(
                 target=GameEngineThread, 

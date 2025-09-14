@@ -83,7 +83,7 @@ poller.register(server_socket, zmq.POLLIN)
 poller.register(moveResponse_socket, zmq.POLLIN)
 
 # Kick off processes to convert game states into moves
-for i in range(10):
+for i in range(25):
     t = threading.Thread(
         target=MoveHandlerProcess, 
         args=[context, moveResponse_socket_path, gameState_socket_path],

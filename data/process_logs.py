@@ -1,7 +1,6 @@
 # Log aggregator
 # Injests client and tourney jsons converts them to parquet files
 
-
 import json
 import argparse
 import numpy as np
@@ -19,29 +18,29 @@ def file_ingestor_thread(folder_path, output_path, process_func, save_func):
     last_read_time = time.time()
     data_object = None
 
+    ingested_files = []
     # Initial object loads
     for root, dirs, files in os.walk(folder_path):
         for file in files:
             file_path = os.path.join(root, file)
             print(f"Initial Injestion: {file_path}")
+            ingested_files.append(file_path)
             data_object = process_func(file_path, data_object)
     save_func(data_object, output_path)
 
     # Loop reloading objects
     while True:
-        new_max_read_time = last_read_time
+        newFiles = False
         for root, dirs, files in os.walk(folder_path):
             for file in files:
                 file_path = os.path.join(root, file)
-                file_mtime = os.path.getmtime(file_path)
-                if file_mtime > last_read_time:
-                    data_object = process_func(file_path, data_object)
+                if file_path not in ingested_files and not is_file_open_lsof(file_path):
                     print(f"New File: {file_path}")
-                    if file_mtime > new_max_read_time:
-                        new_max_read_time = file_mtime
-        if new_max_read_time > last_read_time:
+                    data_object = process_func(file_path, data_object)
+                    ingested_files.append(file_path)
+                    newFiles = True
+        if newFiles:
             save_func(data_object, output_path)
-            last_read_time = new_max_read_time
         time.sleep(0.5)
 
 
@@ -54,8 +53,6 @@ def is_file_open_lsof(filepath):
     return len(result.stdout.strip()) > 0
     
 def load_client_json(file_path, data_object):
-    while is_file_open_lsof(file_path):
-        time.sleep(0.1)
     new_data = pd.DataFrame([json.load(open(file_path, 'r'))])
 
     if data_object is not None:
@@ -74,9 +71,6 @@ def get_timestamp(timestamp):
     return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
 
 def load_tourney_json(file_path, data_object):
-    while is_file_open_lsof(file_path):
-        time.sleep(0.1)
-        
     data = json.load(open(file_path, 'r'))
     # Build tourney table
     tourney_data = {
@@ -125,7 +119,7 @@ def load_tourney_json(file_path, data_object):
         })
     game_data = pd.DataFrame(game_data)
 
-    # Build move table
+    # Build move table TODO
 
 
     # Make new set of dataframes to log
@@ -159,24 +153,27 @@ def save_tourney_parquets(data_object, output_path):
 # # Test tourney thread
 # file_ingestor_thread('logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets)
 # exit()
+def main():
+    print(f"Starting client_logger_thread")
+    client_logger_thread = threading.Thread(
+                target=file_ingestor_thread, 
+                args=['logs/json/clients', 'logs/client.parquet', load_client_json, save_jsons_to_parquet],
+                name=f"client_logger_thread",
+                daemon=True
+            )
+    client_logger_thread.start()
 
-print(f"Starting client_logger_thread")
-client_logger_thread = threading.Thread(
-            target=file_ingestor_thread, 
-            args=['logs/json/clients', 'logs/client.parquet', load_client_json, save_jsons_to_parquet],
-            name=f"client_logger_thread",
-            daemon=True
-        )
-client_logger_thread.start()
+    print(f"Starting tourney_logger_thread")
+    tourney_logger_thread = threading.Thread(
+                target=file_ingestor_thread, 
+                args=['logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets],
+                name=f"tourney_logger_thread",
+                daemon=True
+            )
+    tourney_logger_thread.start()
 
-print(f"Starting tourney_logger_thread")
-tourney_logger_thread = threading.Thread(
-            target=file_ingestor_thread, 
-            args=['logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets],
-            name=f"tourney_logger_thread",
-            daemon=True
-        )
-tourney_logger_thread.start()
+    # Main thread sleeps forever
+    while True: time.sleep(10)
 
-# Main thread sleeps forever
-while True: time.sleep(10)
+if __name__ == '__main__':
+    main()
