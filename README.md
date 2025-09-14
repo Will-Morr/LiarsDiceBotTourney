@@ -1,7 +1,5 @@
 # Liars Dice Bot Tourney
 
-WORK IN PROGRESS
-
 This repo contains a system for running a liars dice bot tournament. A central computer continuously runs games (`game_server.py`) and each player runs a bot locally on their computer (`client_example.py`). 
 
 We want to run as many games as quickly as possible, so both the server and client are multi-threaded to run many games in parallel. This also lets us run a higher time per turn while still getting a large number of games per minute.
@@ -9,12 +7,22 @@ We want to run as many games as quickly as possible, so both the server and clie
 The current example client plays randomly but is functional, if very bad and occasionally tanking penalties for illegal moves. 
 
 ## TODO
- - Matchmaking, probably random but we need to make sure bots don't play themselves
- - Logging, likely just dumping all bot, game, and tourney jsons into folders
- - Database, ingesting all of this into a queryable table
- - Leaderboard, pull and visualize data from database
- - Example bots, we need a few bare-bones bots to test the system
+ - Improved matchmaking, right now some bots can play more games than others
+ - Big table of every decision
  - Other languages? If anyone wants to use any tool other than python feel free to re-implement default_client in a language of your choice and make a PR. 
+
+## How to run things
+
+`python3 client/run_client.py localhost testBots/random.py` will run a bot on the local network. To connect to a shared game server replace `localhost` with the host IP. To run your own bot replace `testBots/random.py` with a path to any file that defines registry data and calculateMove. 
+
+`python3 client/readable_game_log.py -a localhost:5556` will print game logs as they are received. You can filter by bot or player, or only print summaries. Most of these scripts use argparse so you see what arguments are supported with `--help`. 
+
+`python3 server/run_server.py localhost server/server_config.json` will run the default server locally. This opens a port 5555 for bots to connect to and broadcasts logs on port 5556. `python3 testBots/start_test_bots.py` kicks off four (intentionally bad) test bots to run a tournament. 
+
+
+`python3 data/simple_real_time_plotter` plots scores from the last 10 tournies in real time. You need to have the logs pulled locally for this to work. `pyhon3 data/plot_history.py` does the same as a one shot. Either is a good jumping off point for your own data proc. 
+
+`python3 server/process_logs.py` will ingest jsons in parquets if you are downloading all of the json files locally and running your own data processing. 
 
 ## Schemas
 
