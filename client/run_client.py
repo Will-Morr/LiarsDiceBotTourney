@@ -11,6 +11,7 @@ import importlib.util
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
 parser.add_argument("bot_path", help="Python file containing bot info")
+parser.add_argument("-t", "--threads", default=25, help="How many threads to spin up to handle game engine requests (default is 25)")
 parser.add_argument("-p", "--ping_freq_mS", default=10000, help="How frequently to ping server (default is 10 seconds)")
 args = parser.parse_args()
 
@@ -83,7 +84,7 @@ poller.register(server_socket, zmq.POLLIN)
 poller.register(moveResponse_socket, zmq.POLLIN)
 
 # Kick off processes to convert game states into moves
-for i in range(25):
+for i in range(args.threads):
     t = threading.Thread(
         target=MoveHandlerProcess, 
         args=[context, moveResponse_socket_path, gameState_socket_path],
