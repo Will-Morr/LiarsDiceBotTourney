@@ -38,7 +38,7 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
     def print_helper(line):
         print(line)
         if export_path:
-            export_path.write(line+'\n')
+            export_path.write(str(line)+'\n')
 
     if not args.summary_only:
         for log in tourney_data['game_logs']:
@@ -55,7 +55,7 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
             max_name_len += 1
 
             print_helper(f"\n\n{'='*75}\n\nGame Summary:")
-            print(f"Place| {'Name'.ljust(max_name_len, ' ')} | Max Ping |")
+            print_helper(f"Place| {'Name'.ljust(max_name_len, ' ')} | Max Ping |")
             for idx in np.argsort(log['bot_rankings']):
                 print_helper(f"{log['bot_rankings'][idx]: 4d} | {full_names[idx].ljust(max_name_len)} | {log['ping_maximums_mS'][idx]: 3.1f} | ")
             
@@ -73,7 +73,7 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
                             faceString += '   '
 
                     print_helper(f"{full_names[idx].ljust(max_name_len)} : {faceString}")
-                print(f"========== Moves: ")
+                print_helper(f"========== Moves: ")
                 # Print bids in order
                 for count, face, idx in round['bid_history']:
                     print_helper(f"Bid {count: 2d} {face} {full_names[idx].ljust(max_name_len)}")
@@ -94,21 +94,29 @@ def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, e
     for log in tourney_data['game_logs']:
         call_indices = np.array([foo['calling_player'] for foo in log['game_history']])
         call_result = np.array([foo['result'] for foo in log['game_history']])
-        bids = np.concatenate([foo['bid_history'] for foo in log['game_history'] if foo['bid_history'] != []])
-        
+        bids_list = [foo['bid_history'] for foo in log['game_history'] if foo['bid_history'] != []]
+        if len(bids_list) > 0:
+            bids = np.concatenate(bids_list)
+        else:
+            bids = None
+
         for idx, uuid in enumerate(log['bot_uuids']):
             df_idx = np.where(np.array(tourney_data['bot_uuids']) == uuid)[0]
             # Count number of bids
-            df.loc[df_idx, 'bid'] += len(np.where(bids[:, 2] == idx)[0])
+            if bids is not None:
+                df.loc[df_idx, 'bid'] += len(np.where(bids[:, 2] == idx)[0])
 
             subset_result = call_result[call_indices == idx]
             for val, count in zip(*np.unique(subset_result, return_counts=True)):
                 if val not in df:
                     df[val] = 0
                 df.loc[df_idx, val] += count
-    print(f"\n\nAggregate bot move results by frequency")
+    print_helper(f"\n\nAggregate bot move results by frequency")
     df = df.sort_values(by=['scores'], ascending=False)
-    print(df)
+    print_helper(df)
+
+    if export_path:
+        export_path.flush()
 
 if args.export_path:
     export_file = open(args.export_path, 'w')
