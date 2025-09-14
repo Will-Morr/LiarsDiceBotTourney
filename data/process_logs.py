@@ -12,6 +12,8 @@ import os
 import time
 import threading
 import shutil
+from datetime import datetime
+import subprocess
 
 def file_ingestor_thread(folder_path, output_path, process_func, save_func):
     last_read_time = time.time()
@@ -42,11 +44,23 @@ def file_ingestor_thread(folder_path, output_path, process_func, save_func):
             last_read_time = new_max_read_time
         time.sleep(0.5)
 
+
+def is_file_open_lsof(filepath):
+    """Check if file is open using lsof command"""
+    result = subprocess.run(['lsof', filepath], 
+                            capture_output=True, 
+                            text=True, 
+                            check=False)
+    return len(result.stdout.strip()) > 0
+    
 def load_client_json(file_path, data_object):
+    while is_file_open_lsof(file_path):
+        time.sleep(0.1)
     new_data = pd.DataFrame([json.load(open(file_path, 'r'))])
+
     if data_object is not None:
         # Return merged dataframes if none
-        return pd.merge(data_object, new_data, on='session_uuid' 'outer')
+        return pd.merge(data_object, new_data, how='outer')
     else:
         # Return raw data if new
         return new_data
@@ -56,19 +70,25 @@ def save_jsons_to_parquet(data_object, output_path):
         data_object.to_parquet(output_path+'.tmp')
         shutil.move(output_path+'.tmp', output_path)
 
-def load_tourney_json(file_path, data_object):
-    data = json.load(open(file_path, 'r'))
+def get_timestamp(timestamp):
+    return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
 
+def load_tourney_json(file_path, data_object):
+    while is_file_open_lsof(file_path):
+        time.sleep(0.1)
+        
+    data = json.load(open(file_path, 'r'))
     # Build tourney table
     tourney_data = {
         'tourney_tag': [data['tourney_tag']],
         'tourney_game_count': [data['tourney_game_count']],
         'scoring_method': [data['scoring_method']],
         'score_multiplier': [data['score_multiplier']],
-        'start_time': [data['start_time']],
-        'end_time': [data['end_time']],
+        'start_time': [get_timestamp(data['start_time'])],
+        'end_time': [get_timestamp(data['end_time'])],
         'tourney_uuid': [data['tourney_uuid']],
         'tourney_index': [data['tourney_index']],
+        'tourney_bot_count': [data['bot_count']]
     }
     tourney_data = pd.DataFrame(tourney_data)
 
@@ -98,8 +118,8 @@ def load_tourney_json(file_path, data_object):
             'bot_count': game_log['bot_count'],
             'dice_count': game_log['dice_count'],
             'wild_ones_drop': game_log['wild_ones_drop'],
-            'start_time': game_log['start_time'],
-            'end_time': game_log['end_time'],
+            'start_time': get_timestamp (game_log['start_time']),
+            'end_time': get_timestamp   (game_log['end_time']),
             'total_rounds': len(game_log['game_history']),
             'final_rankings': str(game_log['bot_rankings'])  # Store as string for now
         })
@@ -127,10 +147,13 @@ def load_tourney_json(file_path, data_object):
 
 def save_tourney_parquets(data_object, output_path):
     if data_object is None:
-        return    
+        return
+    # Save dataframe to temp file
+    for key, val in data_object.items():
+        val.to_parquet(os.path.join(output_path, key+'.parquet')+'.tmp')
+    # Move all at once to keep in sync
     for key, val in data_object.items():
         filepath = os.path.join(output_path, key+'.parquet')
-        val.to_parquet(filepath+'.tmp')
         shutil.move(filepath+'.tmp', filepath)
 
 # # Test tourney thread
