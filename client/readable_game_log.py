@@ -16,13 +16,12 @@ args = parser.parse_args()
 
 def filter_indices(index_list, search_list, search_val):
     idx = 0
-    while idx > len(index_list):
+    while idx < len(index_list):
         if search_list[index_list[idx]] != search_val:
             del index_list[idx]
         else:
             idx += 1
     return index_list
-
 
 def makeReadableGameLog(tourney_data, filter_player = None, filter_bot = None, export_path = None):
     # Filter to only specifies bots
