@@ -7,6 +7,7 @@ import random
 from multiprocessing import Process
 import os
 import importlib.util
+from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
@@ -66,15 +67,21 @@ server_socket.connect(server_url)
 
 os.makedirs("sock", exist_ok=True)
 
+import platform
+if platform.system() == "Windows":
+    moveResponse_socket_path = f"//./pipe/{SESSION_GUID}_move-response"
+    gameState_socket_path = f"//./pipe/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
+else:
+    moveResponse_socket_path = f"ipc://sock/{SESSION_GUID}_move-response.sock"
+    gameState_socket_path = f"ipc://sock/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
+
 # Backend socket for thread communication
 moveResponse_socket = context.socket(zmq.SUB)
-moveResponse_socket_path = f"ipc://sock/{SESSION_GUID}_move-response.sock" # Include GUID in socket path so we can handle multiple sessions
 moveResponse_socket.bind(moveResponse_socket_path)
 moveResponse_socket.setsockopt(zmq.SUBSCRIBE, b"")
 
 # Backend socket to send 
 gameState_socket = context.socket(zmq.PUSH)
-gameState_socket_path = f"ipc://sock/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
 gameState_socket.bind(gameState_socket_path)
 
 # Send metadata on boot
