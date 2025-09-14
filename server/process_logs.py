@@ -14,7 +14,7 @@ import shutil
 from datetime import datetime
 import subprocess
 
-def file_ingestor_thread(folder_path, output_path, process_func, save_func):
+def file_ingestor_thread(folder_path, output_path, process_func, save_func, silence):
     last_read_time = time.time()
     data_object = None
 
@@ -23,7 +23,7 @@ def file_ingestor_thread(folder_path, output_path, process_func, save_func):
     for root, dirs, files in os.walk(folder_path):
         for file in files:
             file_path = os.path.join(root, file)
-            print(f"Initial Injestion: {file_path}")
+            if not silence: print(f"Initial Injestion: {file_path}")
             ingested_files.append(file_path)
             data_object = process_func(file_path, data_object)
     save_func(data_object, output_path)
@@ -35,7 +35,7 @@ def file_ingestor_thread(folder_path, output_path, process_func, save_func):
             for file in files:
                 file_path = os.path.join(root, file)
                 if file_path not in ingested_files and not is_file_open_lsof(file_path):
-                    print(f"New File: {file_path}")
+                    if not silence: print(f"New File: {file_path}")
                     data_object = process_func(file_path, data_object)
                     ingested_files.append(file_path)
                     newFiles = True
@@ -153,27 +153,27 @@ def save_tourney_parquets(data_object, output_path):
 # # Test tourney thread
 # file_ingestor_thread('logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets)
 # exit()
-def main():
-    print(f"Starting client_logger_thread")
+def log_ingestor_threads(silence = True):
+    if not silence: print(f"Starting client_logger_thread")
     client_logger_thread = threading.Thread(
                 target=file_ingestor_thread, 
-                args=['logs/json/clients', 'logs/client.parquet', load_client_json, save_jsons_to_parquet],
+                args=['logs/json/clients', 'logs/client.parquet', load_client_json, save_jsons_to_parquet, silence],
                 name=f"client_logger_thread",
                 daemon=True
             )
     client_logger_thread.start()
 
-    print(f"Starting tourney_logger_thread")
+    if not silence: print(f"Starting tourney_logger_thread")
     tourney_logger_thread = threading.Thread(
                 target=file_ingestor_thread, 
-                args=['logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets],
+                args=['logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets, silence],
                 name=f"tourney_logger_thread",
                 daemon=True
             )
     tourney_logger_thread.start()
 
+if __name__ == '__main__':
+    log_ingestor_threads(silence = False)
+
     # Main thread sleeps forever
     while True: time.sleep(10)
-
-if __name__ == '__main__':
-    main()

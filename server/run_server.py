@@ -11,6 +11,8 @@ from pathlib import Path
 import random
 from copy import deepcopy
 
+import process_logs # Load log processor to run as independent thread
+
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
 parser.add_argument("config_path", help="Path to server config to use")
@@ -365,15 +367,23 @@ def runServer(server_config):
     poller.register(gameEngine_socket, zmq.POLLIN)
 
     # Kick off logger thread
-    print(f"Starting logger")
-    loggerThread = threading.Thread(
+    print(f"Starting log broadcaster")
+    log_broadcaster = threading.Thread(
                 target=tourneyLogsThread, 
                 args=[context, server_config],
-                name=f"logger_thread",
+                name=f"log_broadcaster",
                 daemon=True
             )
-    loggerThread.start()
+    log_broadcaster.start()
     
+    print(f"Starting log ingestor")
+    log_ingestor = threading.Thread(
+                target=process_logs.log_ingestor_threads(), 
+                args=["fjaksdlfjskadlf"],
+                name=f"log_ingestor",
+                daemon=True,
+            )
+    log_ingestor.start()
 
     # List of clients that are active
     clients = {}
