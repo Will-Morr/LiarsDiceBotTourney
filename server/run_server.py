@@ -3,6 +3,7 @@ import argparse
 import json
 import zmq
 import threading
+from multiprocessing import Process, Queue, Manager
 import time
 import uuid
 import numpy as np
@@ -110,7 +111,7 @@ def endRound(result, game_state, face_counts, losing_player, calling_player):
 
     return game_state, rollNewDice(game_state)
 
-def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_uuid, timeout_Ms):
+def GameEngineProcess(dice_count, do_drop_wilds, player_uuids, tourney_uuid, timeout_Ms, game_engine_port, server_config):
     # Init game state
     start_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     start_time = time.time()
@@ -139,9 +140,10 @@ def GameEngineThread(context, dice_count, do_drop_wilds, player_uuids, tourney_u
 
     current_hands = None
     
-    # Init socket connection
-    gameEngine_socket = context.socket(zmq.DEALER)
-    gameEngine_socket.connect(f"inproc://game_engine")
+    # Init socket connection - create new context for this process
+    game_context = zmq.Context()
+    gameEngine_socket = game_context.socket(zmq.DEALER)
+    gameEngine_socket.connect(f"tcp://localhost:{game_engine_port}")
     gameEngine_socket.setsockopt_string(zmq.IDENTITY, game_uuid)
 
     poller = zmq.Poller()
@@ -357,9 +359,10 @@ def runServer(server_config):
     broadcast_socket = context.socket(zmq.PUB)
     broadcast_socket.bind(f"tcp://*:{server_config['logs_port']}")
 
-    # Init internal game communication
+    # Init internal game communication - use TCP for multiprocessing
+    game_engine_port = server_config['game_port'] + 1000  # Use a different port for internal communication
     gameEngine_socket = context.socket(zmq.ROUTER)
-    gameEngine_socket.bind(f"inproc://game_engine")
+    gameEngine_socket.bind(f"tcp://*:{game_engine_port}")
 
     # Poller to handle both network comms and game comms
     poller = zmq.Poller()
@@ -460,10 +463,10 @@ def runServer(server_config):
 
         
         # Kick off game engines
-        game_threads = []
+        game_processes = []
         game_logs = []
         print(f"Kicking off {server_config['games_per_tourney']} games")
-        game_threads_live = server_config['games_per_tourney']
+        game_processes_live = server_config['games_per_tourney']
         bot_uuids = list(clients.keys())
         # slots_left_per_bot = server_config['games_per_tourney'] * np.ones(len(bot_uuids))
         for i in range(server_config['games_per_tourney']):
@@ -472,33 +475,33 @@ def runServer(server_config):
             game_bot_uuids = random.sample(bot_uuids, nextGameCount)
             game_bot_uuids = deepcopy(game_bot_uuids)
             random.shuffle(game_bot_uuids)
-            t = threading.Thread(
-                target=GameEngineThread, 
-                args=[context, server_config['dice_count'], server_config['do_drop_wilds'], game_bot_uuids, tourney_uuid, server_config['move_timeout_mS']],
+            p = Process(
+                target=GameEngineProcess, 
+                args=[server_config['dice_count'], server_config['do_drop_wilds'], game_bot_uuids, tourney_uuid, server_config['move_timeout_mS'], game_engine_port, server_config],
                 name=f"GameEngine_{i}",
                 daemon=True
             )
-            t.start()
-            game_threads.append(t)
+            p.start()
+            game_processes.append(p)
 
         # Handle re-routing ZMQ messages to engines
         # Wait for all games to return or hang
-        while game_threads_live > 0:
+        while game_processes_live > 0:
             socks = dict(poller.poll(100)) # 100ms timeout so we will start tournament even if every bot is connected
 
-            # Timeout hit, check to make sure all games threads are still live
+            # Timeout hit, check to make sure all games processes are still live
             if len(socks) == 0:
-                # Check for live game threads
-                game_threads_live = 0
-                for t in game_threads:
-                    if t.is_alive():
-                        game_threads_live += 1
-                if game_threads_live == 0:
-                    print("WARNING All game threads returned without full logs")
+                # Check for live game processes
+                game_processes_live = 0
+                for p in game_processes:
+                    if p.is_alive():
+                        game_processes_live += 1
+                if game_processes_live == 0:
+                    print("WARNING All game processes returned without full logs")
                     # We timed out despite all games having returned. This should not happen
                     break
                 else:
-                    print(f"{game_threads_live} live threads")
+                    print(f"{game_processes_live} live processes")
             
             # Handle bot communication
             elif bot_socket in socks and socks[bot_socket] == zmq.POLLIN:                    
@@ -544,6 +547,14 @@ def runServer(server_config):
                 break
 
         print(f"Tourney complete")
+        
+        # Clean up game processes
+        for p in game_processes:
+            if p.is_alive():
+                p.terminate()
+                p.join(timeout=5)
+                if p.is_alive():
+                    p.kill()
 
         # Parse game logs
         game_logs = [json.loads(log) for log in game_logs] # Load game logs as json
