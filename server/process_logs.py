@@ -53,7 +53,13 @@ def is_file_open_lsof(filepath):
     return len(result.stdout.strip()) > 0
     
 def load_client_json(file_path, data_object):
-    new_data = pd.DataFrame([json.load(open(file_path, 'r'))])
+    # Rename session uuid
+    # This is a quick hack to avoid a refactor that would touch players existing bots
+    new_client = json.load(open(file_path, 'r'))
+    new_client['bot_uuid'] = new_client['session_uuid']
+    del new_client['session_uuid']
+
+    new_data = pd.DataFrame([new_client])
 
     if data_object is not None:
         # Return merged dataframes if none
@@ -64,8 +70,8 @@ def load_client_json(file_path, data_object):
 
 def save_jsons_to_parquet(data_object, output_path):
     if data_object is not None:
-        data_object.to_parquet(output_path+'.tmp')
-        shutil.move(output_path+'.tmp', output_path)
+        data_object.to_parquet(str(output_path)+'.tmp')
+        shutil.move(str(output_path)+'.tmp', output_path)
 
 def get_timestamp(timestamp):
     return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
@@ -87,9 +93,9 @@ def load_tourney_json(file_path, data_object):
     tourney_data = pd.DataFrame(tourney_data)
 
     # Bot data
-    bot_data = []
+    tourney_results = []
     for i, (bot_uuid, scores) in enumerate(data['results_by_bot'].items()):
-        bot_data.append({
+        tourney_results.append({
             'tourney_uuid': data['tourney_uuid'],
             'bot_uuid': bot_uuid,
             'bot_fullname': data['bot_fullnames'][i],
@@ -100,9 +106,9 @@ def load_tourney_json(file_path, data_object):
             'game_scores': scores[0],  # First array is game scores
             'game_rankings': scores[1]  # Second array is rankings
         })
-    bot_data = pd.DataFrame(bot_data)
+    tourney_results = pd.DataFrame(tourney_results)
 
-    # Game data
+    # Log game metadata
     game_data = []
     for i, game_log in enumerate(data['game_logs']):
         game_data.append({
@@ -119,15 +125,107 @@ def load_tourney_json(file_path, data_object):
         })
     game_data = pd.DataFrame(game_data)
 
-    # Build move table TODO
+    # Every move's results and each bot's game logs by tourney
+    move_results = []
+    game_results = []
+    game_hands = []
+    for i, game_log in enumerate(data['game_logs']):
+        # Iterate through rounds in game
+        for roundIdx, roundLog in enumerate(game_log['game_history']):
+            # Save each hand played
+            for botIdx, uuid in enumerate(game_log['bot_uuids']):
+                handDict = {
+                    'bot_uuid': uuid,
+                    'game_uuid': game_log['game_uuid'],
+                    'round_index': roundIdx,
+                }
+                handDict |= {str(i): j for i, j in zip(range(1,7), roundLog['face_counts'][botIdx])}
+                game_hands.append(handDict)
+            
+            # Iterate through all bids except for final bid
+            wild_ones = True
+            is_first_go_around = True
+            first_bot_index = 0
+            if len(roundLog['bid_history']) > 0: first_bot_index = roundLog['bid_history'][0][2]
+            for bidIdx, bid in enumerate(roundLog['bid_history'][:-1]):
+                if bidIdx == 0:
+                    first_bot_index = bid[2]
+                elif is_first_go_around:
+                    if bid[1] == 1:
+                        wild_ones = False
+                    if bid[2] == first_bot_index:
+                        is_first_go_around = False
 
+                move_results.append({
+                        'game_uuid': game_log['game_uuid'],
+                        'round_index': roundIdx,
+                        'bid_index': bidIdx,
+                        'bot_uuid': game_log['bot_uuids'][bid[2]],
+                        'result': "uncalled_bid",
+                        'bid_count': bid[0],
+                        'bid_face': bid[1],
+                        'wild_ones': wild_ones,
+                })
+
+            # Save final move
+            move_results.append({
+                'game_uuid': game_log['game_uuid'],
+                'round_index': roundIdx,
+                'bid_index': len(roundLog['bid_history']), # Index is number of bids + 1
+                'bot_uuid': game_log['bot_uuids'][roundLog['calling_player']],
+                'result': roundLog['result'],
+                'bid_count': None,
+                'bid_face': None,
+                'wild_ones': wild_ones,
+            })
+
+            finalBidIdx = len(roundLog['bid_history'])-1
+
+            # Do not log final bid if the game was called instantly
+            if finalBidIdx < 0:
+                continue
+
+            # Set final bid's result by if it was called and if it was true
+            final_bid_result = 'uncalled_bid'
+            if roundLog['result'] == 'good_call': final_bid_result = 'bad_bid'
+            if roundLog['result'] == 'bad_call': final_bid_result = 'good_bid'
+
+            # Save final bid result
+            finalBid = roundLog['bid_history'][-1]
+            move_results.append({
+                'game_uuid': game_log['game_uuid'],
+                'round_index': roundIdx,
+                'bid_index': finalBidIdx,
+                'bot_uuid': game_log['bot_uuids'][finalBid[2]],
+                'result': final_bid_result,
+                'bid_count': finalBid[0],
+                'bid_face': finalBid[1],
+                'wild_ones': wild_ones,
+            })
+
+
+        for botIdx, uuid in enumerate(game_log['bot_uuids']):
+            game_results.append({
+                'bot_uuid': uuid,
+                'game_uuid': game_log['game_uuid'],
+                'turn_placement': botIdx,
+                'bot_ranking': game_log['bot_rankings'][botIdx],
+                'ping_average_mS': game_log['ping_averages_mS'][botIdx],
+                'ping_maximum_mS': game_log['ping_maximums_mS'][botIdx],
+            })
+    game_results = pd.DataFrame(game_results)
+    move_results = pd.DataFrame(move_results)
+    game_hands = pd.DataFrame(game_hands)
 
     # Make new set of dataframes to log
     # The filename is set by this arg
     new_dataframes = {
         'tourney': tourney_data,
-        'bot_result': bot_data,
         'game': game_data,
+        'tourney_results': tourney_results,
+        'game_results': game_results,
+        'move_results': move_results,
+        'hands': game_hands,
     }
 
     if data_object is not None:
@@ -153,11 +251,11 @@ def save_tourney_parquets(data_object, output_path):
 # # Test tourney thread
 # file_ingestor_thread('logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets)
 # exit()
-def log_ingestor_threads(silence = True):
+def log_ingestor_threads(output_path = Path('logs'), silence = True):
     if not silence: print(f"Starting client_logger_thread")
     client_logger_thread = threading.Thread(
                 target=file_ingestor_thread, 
-                args=['logs/json/clients', 'logs/client.parquet', load_client_json, save_jsons_to_parquet, silence],
+                args=['logs/json/clients', output_path / 'client.parquet', load_client_json, save_jsons_to_parquet, silence],
                 name=f"client_logger_thread",
                 daemon=True
             )
@@ -166,13 +264,23 @@ def log_ingestor_threads(silence = True):
     if not silence: print(f"Starting tourney_logger_thread")
     tourney_logger_thread = threading.Thread(
                 target=file_ingestor_thread, 
-                args=['logs/json/tournies', 'logs', load_tourney_json, save_tourney_parquets, silence],
+                args=['logs/json/tournies', output_path, load_tourney_json, save_tourney_parquets, silence],
                 name=f"tourney_logger_thread",
                 daemon=True
             )
     tourney_logger_thread.start()
 
 if __name__ == '__main__':
+    # Test client handler
+    if False:
+        file_ingestor_thread('logs/json/clients', Path('logs') / 'client.parquet', load_client_json, save_jsons_to_parquet, False)
+    
+    # Test tourney handler
+    if False:
+        file_ingestor_thread('logs/json/tournies', Path('logs'), load_tourney_json, save_tourney_parquets, False)
+
+
+
     log_ingestor_threads(silence = False)
 
     # Main thread sleeps forever
