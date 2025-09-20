@@ -1,5 +1,5 @@
 {
-    "games_per_tourney": 250,
+    "games_per_tourney_per_bot": 100,
     "tourney_freq_S": 60,
     "tourney_min_gap_S": 10,
     "tourney_tag": "default",
