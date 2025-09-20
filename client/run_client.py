@@ -4,28 +4,12 @@ import zmq
 import time
 import json
 import random
-from multiprocessing import Process
+from multiprocessing import Process, freeze_support
 import os
 import importlib.util
 from pathlib import Path
 import socket
 
-parser = argparse.ArgumentParser()
-parser.add_argument("zmq_address", help="Address to start ZMQ on")
-parser.add_argument("bot_path", help="Python file containing bot info")
-parser.add_argument("-t", "--threads", default=25, help="How many threads to spin up to handle game engine requests (default is 25)")
-parser.add_argument("-p", "--ping_freq_mS", default=10000, help="How frequently to ping server (default is 10 seconds)")
-args = parser.parse_args()
-
-# Import library specified as argument
-# We do it this way so players can just copy example bot without duplicating code
-module_name = args.bot_path.stem if hasattr(args.bot_path, 'stem') else 'dynamic_module'
-spec = importlib.util.spec_from_file_location(module_name, args.bot_path)
-bot_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(bot_module)
-
-CalculateMove = bot_module.calculateMove
-BOT_REGISTRY_DATA = bot_module.BOT_REGISTRY_DATA
 
 def MoveHandlerProcess(moveResponse_socket_path, gameState_socket_path):
     context = zmq.Context()
@@ -43,112 +27,158 @@ def MoveHandlerProcess(moveResponse_socket_path, gameState_socket_path):
             # Receive game state and get response
             game_uuid, game_state = receiver.recv_multipart()
             respose = CalculateMove(json.loads(game_state))
-            sender.send_multipart([game_uuid, json.dumps(respose).encode('utf-8')])
+            sender.send_multipart([game_uuid, json.dumps(respose).encode("utf-8")])
         except zmq.ZMQError as e:
             print(f"MoveHandlerThread error: {e}")
             break
 
-def find_open_port(start_port=8000, max_port=65535):
-    for port in range(start_port, max_port + 1):
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                # Try to bind to the port
-                sock.bind(('localhost', port))
-                return port
-        except OSError:
-            # Port is already in use, continue to next port
-            continue
-    
-    return None  # No available port found
 
-# Generate metadata
-SESSION_GUID = str(uuid.uuid4())
-print(f"SESSION_GUID:{SESSION_GUID}")
-BOT_REGISTRY_DATA["session_uuid"] = SESSION_GUID
-BOT_REGISTRY_DATA["full_title"] = "_".join([BOT_REGISTRY_DATA['name'], BOT_REGISTRY_DATA['version'], BOT_REGISTRY_DATA['player']])
-
-# Set up ZMQ connection
-context = zmq.Context.instance()
-server_socket = context.socket(zmq.DEALER)
-server_socket.setsockopt_string(zmq.IDENTITY, SESSION_GUID) # Set ID
-
-# Server socket to get game state and send metadata/moves
-server_url = f"tcp://{args.zmq_address}:5555"
-server_socket.connect(server_url)
-
-move_port = find_open_port()
-socket_port = find_open_port(move_port+1)
-moveResponse_socket_path = f"tcp://localhost:{move_port}"
-gameState_socket_path = f"tcp://localhost:{socket_port}" # Include GUID in socket path so we can handle multiple sessions
-print(f"Opened ports for move responses on {move_port} and game states on {socket_port}")
-
-# Backend socket for thread communication
-moveResponse_socket = context.socket(zmq.SUB)
-moveResponse_socket.bind(moveResponse_socket_path)
-moveResponse_socket.setsockopt(zmq.SUBSCRIBE, b"")
-
-# Backend socket to send 
-gameState_socket = context.socket(zmq.PUSH)
-gameState_socket.bind(gameState_socket_path)
-
-# Send metadata on boot
-def register_bot():
-    server_socket.send_multipart([b'', b'RegisterBot', json.dumps(BOT_REGISTRY_DATA).encode('utf-8')])
-register_bot()
-
-# Poller to have main loop receive both game states and finished move calculation
-poller = zmq.Poller()
-poller.register(server_socket, zmq.POLLIN)
-poller.register(moveResponse_socket, zmq.POLLIN)
-
-# Kick off processes to convert game states into moves
-for i in range(args.threads):
-    p = Process(
-        target=MoveHandlerProcess,
-        args=[moveResponse_socket_path, gameState_socket_path],
-        name=f"MoveHandlerProcess_{SESSION_GUID}_{i}",
-        daemon=True
+if __name__ == "__main__":
+    freeze_support()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("zmq_address", help="Address to start ZMQ on")
+    parser.add_argument("bot_path", help="Python file containing bot info")
+    parser.add_argument(
+        "-t",
+        "--threads",
+        default=25,
+        help="How many threads to spin up to handle game engine requests (default is 25)",
     )
-    p.start()
+    parser.add_argument(
+        "-p",
+        "--ping_freq_mS",
+        default=10000,
+        help="How frequently to ping server (default is 10 seconds)",
+    )
+    args = parser.parse_args()
 
-# Main loop
-print("Handlers started, running main loop")
-while True:
-    try:
-        # Poll for messages with 10 second timeout
-        # This timeout is required to make sure the server gets pinged every 10 seconds
-        socks = dict(poller.poll(int(args.ping_freq_mS)))
+    # Import library specified as argument
+    # We do it this way so players can just copy example bot without duplicating code
+    module_name = (
+        args.bot_path.stem if hasattr(args.bot_path, "stem") else "dynamic_module"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, args.bot_path)
+    bot_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bot_module)
 
-        # Handle incoming client requests
-        if server_socket in socks and socks[server_socket] == zmq.POLLIN:
-            fulMsg = server_socket.recv_multipart()
-            _, messageType, *messageData = fulMsg
-            if messageType == b'GameState':
-                gameState_socket.send_multipart(messageData)
-            elif messageType == b'Print':
-                print(f"Received: {messageData[0].decode('utf-8')}")
-            elif messageType == b'Ping':
-                server_socket.send_multipart([b'', b'Ping'])
-                print('Server pinged, game may start soon   ', end='\r', flush=True)
+    CalculateMove = bot_module.calculateMove
+    BOT_REGISTRY_DATA = bot_module.BOT_REGISTRY_DATA
+
+    def find_open_port(start_port=8000, max_port=65535):
+        for port in range(start_port, max_port + 1):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    # Try to bind to the port
+                    sock.bind(("localhost", port))
+                    return port
+            except OSError:
+                # Port is already in use, continue to next port
+                continue
+
+        return None  # No available port found
+
+    # Generate metadata
+    SESSION_GUID = str(uuid.uuid4())
+    print(f"SESSION_GUID:{SESSION_GUID}")
+    BOT_REGISTRY_DATA["session_uuid"] = SESSION_GUID
+    BOT_REGISTRY_DATA["full_title"] = "_".join(
+        [
+            BOT_REGISTRY_DATA["name"],
+            BOT_REGISTRY_DATA["version"],
+            BOT_REGISTRY_DATA["player"],
+        ]
+    )
+
+    # Set up ZMQ connection
+    context = zmq.Context.instance()
+    server_socket = context.socket(zmq.DEALER)
+    server_socket.setsockopt_string(zmq.IDENTITY, SESSION_GUID)  # Set ID
+
+    # Server socket to get game state and send metadata/moves
+    server_url = f"tcp://{args.zmq_address}:5555"
+    server_socket.connect(server_url)
+
+    move_port = find_open_port()
+    socket_port = find_open_port(move_port + 1)
+    moveResponse_socket_path = f"tcp://localhost:{move_port}"
+    gameState_socket_path = f"tcp://localhost:{socket_port}"  # Include GUID in socket path so we can handle multiple sessions
+    print(
+        f"Opened ports for move responses on {move_port} and game states on {socket_port}"
+    )
+
+    # Backend socket for thread communication
+    moveResponse_socket = context.socket(zmq.SUB)
+    moveResponse_socket.bind(moveResponse_socket_path)
+    moveResponse_socket.setsockopt(zmq.SUBSCRIBE, b"")
+
+    # Backend socket to send
+    gameState_socket = context.socket(zmq.PUSH)
+    gameState_socket.bind(gameState_socket_path)
+
+    # Send metadata on boot
+    def register_bot():
+        server_socket.send_multipart(
+            [b"", b"RegisterBot", json.dumps(BOT_REGISTRY_DATA).encode("utf-8")]
+        )
+
+    register_bot()
+
+    # Poller to have main loop receive both game states and finished move calculation
+    poller = zmq.Poller()
+    poller.register(server_socket, zmq.POLLIN)
+    poller.register(moveResponse_socket, zmq.POLLIN)
+
+    # Kick off processes to convert game states into moves
+    for i in range(args.threads):
+        p = Process(
+            target=MoveHandlerProcess,
+            args=[moveResponse_socket_path, gameState_socket_path],
+            name=f"MoveHandlerProcess_{SESSION_GUID}_{i}",
+            daemon=True,
+        )
+        p.start()
+
+    # Main loop
+    print("Handlers started, running main loop")
+    while True:
+        try:
+            # Poll for messages with 10 second timeout
+            # This timeout is required to make sure the server gets pinged every 10 seconds
+            socks = dict(poller.poll(int(args.ping_freq_mS)))
+
+            # Handle incoming client requests
+            if server_socket in socks and socks[server_socket] == zmq.POLLIN:
+                fulMsg = server_socket.recv_multipart()
+                _, messageType, *messageData = fulMsg
+                if messageType == b"GameState":
+                    gameState_socket.send_multipart(messageData)
+                elif messageType == b"Print":
+                    print(f"Received: {messageData[0].decode('utf-8')}")
+                elif messageType == b"Ping":
+                    server_socket.send_multipart([b"", b"Ping"])
+                    print("Server pinged, game may start soon   ", end="\r", flush=True)
+                else:
+                    print(f"WARNING: Unhandled message type {messageType}")
+
+            # Handle responses from backend socket
+            elif (
+                moveResponse_socket in socks
+                and socks[moveResponse_socket] == zmq.POLLIN
+            ):
+                game_uuid, message = moveResponse_socket.recv_multipart()
+                server_socket.send_multipart([b"", b"Move", game_uuid, message])
+
+            # Ping server if timed out
+            elif len(socks) == 0:
+                register_bot()
+
+            # Something is afoot
             else:
-                print(f"WARNING: Unhandled message type {messageType}")
+                print(f"Failed to handle {socks}")
+        except KeyboardInterrupt:
+            break
 
-        # Handle responses from backend socket
-        elif moveResponse_socket in socks and socks[moveResponse_socket] == zmq.POLLIN:
-            game_uuid, message = moveResponse_socket.recv_multipart()
-            server_socket.send_multipart([b'', b'Move', game_uuid, message])
-
-        # Ping server if timed out
-        elif len(socks) == 0:
-            register_bot()
-        
-        # Something is afoot
-        else:
-            print(f"Failed to handle {socks}")
-    except KeyboardInterrupt:        
-        break
-
-print("Shutting down...")
-server_socket.close()
-moveResponse_socket.close()
-gameState_socket.close()
+    print("Shutting down...")
+    server_socket.close()
+    moveResponse_socket.close()
+    gameState_socket.close()
