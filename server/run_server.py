@@ -470,7 +470,7 @@ def runServer(server_config):
         game_count = int(np.ceil(server_config['games_per_tourney_per_bot'] * len(clients) / players_per_game))
         print(f"Kicking off {game_count} games")
         bot_uuids = list(clients.keys())
-        game_processes_live = game_count
+        game_threads_live = game_count
         for i in range(game_count):
             # Get new set of bots
             nextGameCount = random.randint(server_config['player_count'][0], min(len(clients), server_config['player_count'][1]))
