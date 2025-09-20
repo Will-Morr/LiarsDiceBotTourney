@@ -8,6 +8,7 @@ from multiprocessing import Process
 import os
 import importlib.util
 from pathlib import Path
+import socket
 
 parser = argparse.ArgumentParser()
 parser.add_argument("zmq_address", help="Address to start ZMQ on")
@@ -19,7 +20,6 @@ args = parser.parse_args()
 # Import library specified as argument
 # We do it this way so players can just copy example bot without duplicating code
 module_name = args.bot_path.stem if hasattr(args.bot_path, 'stem') else 'dynamic_module'
-print()
 spec = importlib.util.spec_from_file_location(module_name, args.bot_path)
 bot_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bot_module)
@@ -48,7 +48,18 @@ def MoveHandlerProcess(moveResponse_socket_path, gameState_socket_path):
             print(f"MoveHandlerThread error: {e}")
             break
 
-
+def find_open_port(start_port=8000, max_port=65535):
+    for port in range(start_port, max_port + 1):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                # Try to bind to the port
+                sock.bind(('localhost', port))
+                return port
+        except OSError:
+            # Port is already in use, continue to next port
+            continue
+    
+    return None  # No available port found
 
 # Generate metadata
 SESSION_GUID = str(uuid.uuid4())
@@ -65,15 +76,11 @@ server_socket.setsockopt_string(zmq.IDENTITY, SESSION_GUID) # Set ID
 server_url = f"tcp://{args.zmq_address}:5555"
 server_socket.connect(server_url)
 
-os.makedirs("sock", exist_ok=True)
-
-import platform
-if platform.system() == "Windows":
-    moveResponse_socket_path = f"//./pipe/{SESSION_GUID}_move-response"
-    gameState_socket_path = f"//./pipe/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
-else:
-    moveResponse_socket_path = f"ipc://sock/{SESSION_GUID}_move-response.sock"
-    gameState_socket_path = f"ipc://sock/{SESSION_GUID}_game-states.sock" # Include GUID in socket path so we can handle multiple sessions
+move_port = find_open_port()
+socket_port = find_open_port(move_port+1)
+moveResponse_socket_path = f"tcp://localhost:{move_port}"
+gameState_socket_path = f"tcp://localhost:{socket_port}" # Include GUID in socket path so we can handle multiple sessions
+print(f"Opened ports for move responses on {move_port} and game states on {socket_port}")
 
 # Backend socket for thread communication
 moveResponse_socket = context.socket(zmq.SUB)
@@ -122,6 +129,7 @@ while True:
                 print(f"Received: {messageData[0].decode('utf-8')}")
             elif messageType == b'Ping':
                 server_socket.send_multipart([b'', b'Ping'])
+                print('Server pinged, game may start soon   ', end='\r', flush=True)
             else:
                 print(f"WARNING: Unhandled message type {messageType}")
 
