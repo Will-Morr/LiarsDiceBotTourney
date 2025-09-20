@@ -462,11 +462,16 @@ def runServer(server_config):
         # Kick off game engines
         game_threads = []
         game_logs = []
-        print(f"Kicking off {server_config['games_per_tourney']} games")
-        game_threads_live = server_config['games_per_tourney']
+        # Calculate how many games to start
+        game_sizes = server_config['player_count']
+        min_players = game_sizes[0]
+        max_players = max(game_sizes[0], game_sizes[1])
+        players_per_game = np.average(np.array(np.arange(min_players, max_players+1), dtype=np.float16))
+        game_count = int(np.ceil(server_config['games_per_tourney_per_bot'] * len(clients) / players_per_game))
+        print(f"Kicking off {game_count} games")
         bot_uuids = list(clients.keys())
-        # slots_left_per_bot = server_config['games_per_tourney'] * np.ones(len(bot_uuids))
-        for i in range(server_config['games_per_tourney']):
+        game_processes_live = game_count
+        for i in range(game_count):
             # Get new set of bots
             nextGameCount = random.randint(server_config['player_count'][0], min(len(clients), server_config['player_count'][1]))
             game_bot_uuids = random.sample(bot_uuids, nextGameCount)
@@ -540,7 +545,7 @@ def runServer(server_config):
                 print(f"Failed to handle {socks}")
 
             # Break if all games have returned
-            if len(game_logs) == server_config['games_per_tourney']:
+            if len(game_logs) == game_count:
                 break
 
         print(f"Tourney complete")
@@ -600,7 +605,7 @@ def runServer(server_config):
         # Generate tourney logs
         tourney_logs = {
             "tourney_tag": server_config['tourney_tag'],
-            "tourney_game_count": server_config['games_per_tourney'], # TODO make this reflect number of games from matchmaking
+            "tourney_game_count": game_count,
             "scoring_method": server_config['scoring_method'],
             "score_multiplier": server_config['score_mult'],
 
